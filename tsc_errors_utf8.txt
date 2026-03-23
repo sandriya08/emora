@@ -1,0 +1,4 @@
+﻿../Downloads/support-plan.tsx(1,27): error TS2307: Cannot find module 'expo-router' or its corresponding type declarations.
+../Downloads/support-plan.tsx(2,45): error TS2307: Cannot find module 'react' or its corresponding type declarations.
+../Downloads/support-plan.tsx(11,8): error TS2307: Cannot find module 'react-native' or its corresponding type declarations.
+../Downloads/support-plan.tsx(12,30): error TS2307: Cannot find module '../context/DiagnosisContext' or its corresponding type declarations.
