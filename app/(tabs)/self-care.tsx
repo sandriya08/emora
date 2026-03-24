@@ -18,11 +18,12 @@ import ConfettiCannon from "react-native-confetti-cannon";
 import { useAuth } from "../../context/AuthContext";
 import { useDiagnosis } from "../../context/DiagnosisContext";
 import { useWindowDimensions } from "react-native";
+import { API_URL } from "@/constants/api";
 
 export default function SelfCareScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const { user } = useAuth();
-  const { diagnosisResult } = useDiagnosis();
+  const { diagnosisResult, fetchLatest } = useDiagnosis();
   const { diagnoses } = useLocalSearchParams();
   const router = useRouter();
   const confettiRef = useRef<any>(null);
@@ -85,33 +86,44 @@ export default function SelfCareScreen() {
 
   // Mood label → numeric score (higher = better mood)
   const moodScoreMap: Record<string, number> = {
-    "Happy": 5,
-    "Bored": 3,
-    "Sleepy": 2,
-    "Angry": 1,
-    "Not set": 0,
+    "Happy": 5, "Okay": 4, "Bored": 3, "Sleepy": 2, "Uneasy": 2, "Stressed": 1, "Angry": 1, "Heavy": 1, "Tired": 1,
+    "Better": 5, "A bit": 3, "Same": 1
   };
 
   const fetchHistory = async () => {
     try {
       if (!user?.id) return;
-      const res = await fetch(`http://localhost:5000/api/selfcare/history?userId=${user.id}`);
+      const res = await fetch(`${API_URL}/api/selfcare/history?userId=${user.id}`);
       const data = await res.json();
       setSessionHistory(data);
+
+      const latestMoods: Record<string, number | null> = { ...weeklyMoods };
+      const latestAfterMoods: Record<string, string | null> = { ...weeklyAfterMoods };
 
       // Process chart data: mood score per week (as percentage of max score 5)
       const weeklyRates = weeks.map(weekName => {
         const sessions = data.filter((s: any) => s.week === weekName);
         if (sessions.length === 0) return 0;
 
-        // Get the latest session for this week
-        const latestSession = sessions[0]; // Already sorted by timestamp desc
+        // Get the latest session for this week to populate current state
+        const latestSession = sessions[0]; 
         const moodLabel = latestSession.moodBefore || "Not set";
-        const score = moodScoreMap[moodLabel] || 0;
+        const afterMoodLabel = latestSession.moodAfter || "Not set";
 
-        // Convert to percentage (max score is 5)
+        if (latestMoods[weekName] === null) {
+          const moodIdx = moodData.findIndex(m => m.label === moodLabel);
+          if (moodIdx > -1) latestMoods[weekName] = moodIdx;
+        }
+        if (latestAfterMoods[weekName] === null && afterMoodLabel !== "Not set") {
+          latestAfterMoods[weekName] = afterMoodLabel;
+        }
+
+        const score = moodScoreMap[moodLabel] || 0;
         return (score / 5) * 100;
       });
+
+      setWeeklyMoods(latestMoods);
+      setWeeklyAfterMoods(latestAfterMoods);
       setChartData(weeklyRates);
     } catch (err) {
       console.error("Error fetching history:", err);
@@ -120,6 +132,9 @@ export default function SelfCareScreen() {
 
   useEffect(() => {
     fetchHistory();
+    if (!diagnosisResult && user?.id) {
+       fetchLatest(user.id, API_URL);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -129,7 +144,7 @@ export default function SelfCareScreen() {
 
       setLoading(true);
       try {
-        const res = await fetch("http://localhost:5000/api/selfcare", {
+        const res = await fetch(`${API_URL}/api/selfcare`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ diagnoses: emotions }),
@@ -213,7 +228,7 @@ export default function SelfCareScreen() {
     const completedTitles = currentWeekProgress.map(id => activities[id]?.title).filter(Boolean);
     const moodBeforeLabel = weeklyMoods[weeks[selectedWeek]] !== null ? moodData[weeklyMoods[weeks[selectedWeek]]!]?.label : "Not set";
 
-    await fetch("http://localhost:5000/api/selfcare/session", {
+    await fetch(`${API_URL}/api/selfcare/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -261,17 +276,26 @@ export default function SelfCareScreen() {
   };
 
   const monthlyAverage = useMemo(() => {
-    let total = 0;
+    let totalScore = 0;
     let count = 0;
+
     weeks.forEach((weekName) => {
       const afterMood = weeklyAfterMoods[weekName];
+      const weekActivities = weeklyActivities[weekName] || [];
+      const weekProgress = weeklyProgress[weekName] || [];
+      
       if (afterMood) {
-        total += (afterMoodScoreMap[afterMood] || 0);
+        const moodVal = (afterMoodScoreMap[afterMood] || 0) / 5;
+        const completionRate = weekActivities.length > 0 ? weekProgress.length / weekActivities.length : 0;
+        
+        // Month score is also 50/50 mood and completion
+        totalScore += (moodVal * 0.5) + (completionRate * 0.5);
         count++;
       }
     });
-    return count > 0 ? (total / count) / 5 : 0;
-  }, [weeklyAfterMoods]);
+    
+    return count > 0 ? totalScore / count : 0;
+  }, [weeklyAfterMoods, weeklyProgress, weeklyActivities]);
 
   // Custom Circular Progress for Monthly
   const CircularProgress = () => (
@@ -551,7 +575,7 @@ export default function SelfCareScreen() {
             disabled={loading}
           >
             <LinearGradient
-              colors={["#FF7597", "#FF7597"]}
+              colors={["#48BB78", "#38A169"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.finishButtonGradient}
@@ -685,18 +709,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255, 117, 151, 0.06)",
+    backgroundColor: "rgba(72, 187, 120, 0.06)",
     paddingHorizontal: 6,
     paddingVertical: 8,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 117, 151, 0.15)",
+    borderColor: "rgba(72, 187, 120, 0.15)",
   },
   emotionDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#FF7597",
+    backgroundColor: "#48BB78",
     marginRight: 6,
   },
   emotionText: {
@@ -855,7 +879,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: 10,
-    backgroundColor: "#4FC3F7",
+    backgroundColor: "#48BB78",
     borderRadius: 5,
   },
   percentageLabel: {

@@ -241,21 +241,21 @@ const styles = StyleSheet.create({
   },
   activeDot: {
     width: 20,
-    backgroundColor: "#FF7597",
+    backgroundColor: "#FFDAB9",
   },
   button: {
-    backgroundColor: "#FF7597", // Orange button
+    backgroundColor: "#FFDAB9", // Pastel Orange button
     paddingVertical: 16,
     paddingHorizontal: 60,
     borderRadius: 30,
-    shadowColor: "#FF7597",
+    shadowColor: "#FFDAB9",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 4,
   },
   buttonText: {
-    color: "#FFFFFF",
+    color: "#353A40",
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.5,

@@ -20,6 +20,22 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "therapist", "admin"],
       default: "user",
     },
+    savedTherapists: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Therapist",
+      },
+    ],
+    bookedTherapists: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Therapist",
+      },
+    ],
+    therapistProfile: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Therapist",
+    },
   },
   { timestamps: true }
 );

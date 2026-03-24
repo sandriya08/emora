@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Redirect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -10,60 +10,55 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Alert
 } from "react-native";
 
-import { API_URL } from "../constants/api";
-import { useAuth } from "../context/AuthContext";
+import { API_URL } from "../../constants/api";
+import { useAuth } from "../../context/AuthContext";
 
-export default function LoginScreen() {
+export default function AdminLoginScreen() {
   const router = useRouter();
-  const { login, user } = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedRole, setSelectedRole] = useState<'user' | 'therapist'>('user');
-
-  if (user) {
-    return <Redirect href="/(tabs)" />;
-  }
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!email || !password) {
-      alert("Please fill all fields");
+      Alert.alert("Error", "Please fill all fields");
       return;
     }
 
+    setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
+      const response = await fetch(`${API_URL}/api/admin/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-          password,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        console.error("JSON parse error:", jsonError);
+        Alert.alert("Server Error", "The server returned an invalid response.");
+        setLoading(false);
+        return;
+      }
 
       if (response.ok) {
         console.log("Login successful:", data);
         login(data.user);
-        
-        // Role-based redirection
-        if (data.user.role === "therapist") {
-          router.replace("/therapist/dashboard" as any);
-        } else if (data.user.role === "admin") {
-          router.replace("/admin/dashboard" as any);
-        } else {
-          router.replace("/(tabs)" as any);
-        }
+        router.replace("/admin/dashboard" as any);
       } else {
-        alert(data.message || "Login failed");
+        Alert.alert("Login Failed", data.message || "Invalid credentials");
       }
     } catch (error) {
       console.error(error);
-      alert("Unable to connect to server");
+      Alert.alert("Connection Error", "Unable to connect to admin server");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -74,20 +69,15 @@ export default function LoginScreen() {
         style={styles.content}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Emora</Text>
-          <Text style={styles.subtitle}>
-            {selectedRole === 'therapist' ? "Specialist Access Portal" : "Choose your login type to continue"}
-          </Text>
+          <Text style={styles.title}>Admin Portal</Text>
+          <Text style={styles.subtitle}>Secure access for system administrators</Text>
         </View>
 
         {/* Role Selection */}
         <View style={styles.roleContainer}>
           <TouchableOpacity 
-            style={[
-              styles.roleBox, 
-              selectedRole === 'user' && { borderColor: '#FF7597', backgroundColor: '#FFF0F3' }
-            ]}
-            onPress={() => setSelectedRole('user')}
+            style={[styles.roleBox, { borderColor: '#FF7597' }]}
+            onPress={() => router.push("/login")}
           >
             <View style={[styles.roleIconCircle, { backgroundColor: '#FF7597' }]}>
               <Ionicons name="heart" size={24} color="#FFF" />
@@ -96,11 +86,8 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[
-              styles.roleBox, 
-              selectedRole === 'therapist' && { borderColor: '#4A90E2', backgroundColor: '#E1F0FF' }
-            ]}
-            onPress={() => setSelectedRole('therapist')}
+            style={[styles.roleBox, { borderColor: '#4A90E2' }]}
+            onPress={() => router.push("/login")}
           >
             <View style={[styles.roleIconCircle, { backgroundColor: '#4A90E2' }]}>
               <Ionicons name="medkit" size={24} color="#FFF" />
@@ -109,8 +96,8 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity 
-            style={[styles.roleBox, { borderColor: '#353A40' }]}
-            onPress={() => router.push("/admin/login" as any)}
+            style={[styles.roleBox, { borderColor: '#353A40', backgroundColor: '#F0F0F0' }]}
+            onPress={() => {}} // Already on admin login
           >
             <View style={[styles.roleIconCircle, { backgroundColor: '#353A40' }]}>
               <Ionicons name="shield-checkmark" size={24} color="#FFF" />
@@ -121,15 +108,10 @@ export default function LoginScreen() {
 
         <View style={styles.form}>
           <View style={styles.inputContainer}>
-            <Ionicons
-              name="mail-outline"
-              size={20}
-              color="#A0A5B1"
-              style={styles.inputIcon}
-            />
+            <Ionicons name="mail-outline" size={20} color="#A0A5B1" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder={selectedRole === 'therapist' ? "Specialist ID or Email" : "Email or Username"}
+              placeholder="Admin Email"
               placeholderTextColor="#A0A5B1"
               keyboardType="email-address"
               autoCapitalize="none"
@@ -139,12 +121,7 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.inputContainer}>
-            <Ionicons
-              name="lock-closed-outline"
-              size={20}
-              color="#A0A5B1"
-              style={styles.inputIcon}
-            />
+            <Ionicons name="lock-closed-outline" size={20} color="#A0A5B1" style={styles.inputIcon} />
             <TextInput
               style={styles.input}
               placeholder="Password"
@@ -156,55 +133,28 @@ export default function LoginScreen() {
           </View>
 
           <TouchableOpacity 
-            style={[styles.button, selectedRole === 'therapist' && { backgroundColor: '#4A90E2', shadowColor: '#4A90E2' }]} 
+            style={[styles.button, loading && { opacity: 0.7 }]} 
             onPress={handleLogin}
+            disabled={loading}
           >
-            <Text style={styles.buttonText}>
-              {selectedRole === 'therapist' ? "Therapist Sign In" : "Sign In"}
-            </Text>
+            <Text style={styles.buttonText}>{loading ? "Authenticating..." : "Login to Dashboard"}</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>New to Emora? </Text>
-          <TouchableOpacity onPress={() => router.push("/register")}>
-            <Text style={styles.link}>Create Account</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={() => router.push("/login")} style={styles.backButton}>
+          <Text style={styles.backText}>Exit Admin Portal</Text>
+        </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FAF9F6",
-  },
-  content: {
-    flex: 1,
-    padding: 24,
-    justifyContent: "center",
-    maxWidth: 450,
-    width: "100%",
-    alignSelf: "center",
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 30,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "900",
-    color: "#353A40",
-    marginBottom: 4,
-    letterSpacing: -1,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: "#8C8381",
-    fontWeight: "600",
-  },
+  container: { flex: 1, backgroundColor: "#FAF9F6" },
+  content: { flex: 1, padding: 24, justifyContent: "center", maxWidth: 450, width: "100%", alignSelf: "center" },
+  header: { alignItems: "center", marginBottom: 30 },
+  title: { fontSize: 32, fontWeight: "900", color: "#353A40", marginBottom: 4, letterSpacing: -1 },
+  subtitle: { fontSize: 15, color: "#8C8381", textAlign: 'center', fontWeight: "600" },
   roleContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -238,9 +188,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#353A40",
   },
-  form: {
-    marginBottom: 20,
-  },
+  form: { marginBottom: 20 },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -252,17 +200,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F0F0F0",
   },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    color: "#353A40",
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  inputIcon: { marginRight: 10 },
+  input: { flex: 1, color: "#353A40", fontSize: 16, fontWeight: "600" },
   button: {
-    backgroundColor: "#FF7597", // Updated to match premium theme
+    backgroundColor: "#FF7597", 
     height: 60,
     borderRadius: 20,
     alignItems: "center",
@@ -274,24 +215,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  buttonText: {
-    color: "#FFF",
-    fontWeight: "800",
-    fontSize: 18,
-  },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 10,
-  },
-  footerText: {
-    color: "#8C8381",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  link: {
-    color: "#FF7597",
-    fontWeight: "800",
-    fontSize: 15,
-  },
+  buttonText: { color: "#FFF", fontWeight: "800", fontSize: 18 },
+  backButton: { marginTop: 24, alignSelf: 'center' },
+  backText: { color: "#8C8381", fontWeight: "800", fontSize: 15 }
 });

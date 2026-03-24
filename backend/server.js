@@ -15,9 +15,11 @@ app.use(express.json());
 const authRoutes = require("./routes/authRoutes");
 const selfCareRoutes = require("./routes/selfcare");
 const therapistRoutes = require("./routes/therapistRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 app.use("/api/auth", authRoutes);
 app.use("/api/selfcare", selfCareRoutes);
 app.use("/api/therapist", therapistRoutes);
+app.use("/api/admin", adminRoutes);
 
 // MongoDB
 mongoose
@@ -27,6 +29,6 @@ mongoose
 
 // Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
+app.listen(PORT, "0.0.0.0", () =>
     console.log(`Server running on port ${PORT}`)
 );

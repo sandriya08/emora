@@ -85,7 +85,7 @@ export default function RegisterScreen() {
         >
           <View style={styles.header}>
             <View style={styles.iconContainer}>
-              <Ionicons name="person-add-outline" size={60} color="#FF7597" />
+              <Ionicons name="person-add-outline" size={60} color="#FFDAB9" />
             </View>
             <Text style={styles.title}>Create account</Text>
             <Text style={styles.subtitle}>
@@ -243,20 +243,20 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   button: {
-    backgroundColor: "#FF7597", // Orange button
+    backgroundColor: "#FFDAB9", // Pastel Orange button
     height: 60,
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 10,
-    shadowColor: "#FF7597",
+    shadowColor: "#FFDAB9",
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 4,
   },
   buttonText: {
-    color: "#FFFFFF",
+    color: "#353A40",
     fontWeight: "700",
     fontSize: 18,
   },
@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   link: {
-    color: "#FF7597",
+    color: "#FFDAB9",
     fontWeight: "700",
     fontSize: 15,
   },

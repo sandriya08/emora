@@ -6,6 +6,7 @@ interface User {
     name: string;
     email: string;
     role?: string;
+    therapistProfile?: string;
 }
 
 interface AuthContextType {

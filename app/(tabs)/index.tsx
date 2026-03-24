@@ -9,14 +9,45 @@ import {
   Dimensions,
   Image,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { ProgressChart, BarChart } from 'react-native-chart-kit';
+import { ProgressChart, BarChart, LineChart } from 'react-native-chart-kit';
 import { API_URL } from '@/constants/api';
 import { PlusShape, BlobShape, HeartShape, StarburstShape, MoonShape } from '@/components/DashboardShapes';
+import * as Haptics from 'expo-haptics';
+import Animated, { 
+  FadeInUp, 
+  FadeInDown, 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withRepeat, 
+  withTiming, 
+  withSequence,
+  Easing 
+} from 'react-native-reanimated';
+
+const handleHapticPress = (router: any, path: string) => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  router.push(path);
+};
+
+const handleHapticReplace = (router: any, path: string) => {
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  router.replace(path);
+};
+
+const SkeletonPulse = ({ style }: { style?: any }) => {
+  const opacity = useSharedValue(0.3);
+  useEffect(() => {
+    opacity.value = withRepeat(withTiming(0.6, { duration: 800 }), -1, true);
+  }, []);
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View style={[styles.skeleton, animatedStyle, style]} />;
+};
 
 export default function HomeDashboard() {
   const { width: screenWidth } = useWindowDimensions();
@@ -27,55 +58,96 @@ export default function HomeDashboard() {
   const contentWidth = Math.min(screenWidth - 40, containerMaxWidth);
   const [overallProgress, setOverallProgress] = useState(0);
   const [diagnosisHistory, setDiagnosisHistory] = useState<any[]>([]);
+  const [chatHistory, setChatHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchProgress = async () => {
+  const fetchData = async () => {
+    setLoading(true);
     try {
       if (!user?.id) return;
-      const res = await fetch(`${API_URL}/api/selfcare/history?userId=${user.id}`);
-      const data = await res.json();
       
-      if (data && data.length > 0) {
-        // Calculate average progress from all sessions
+      const [progressRes, diagnosisRes, chatRes] = await Promise.all([
+        fetch(`${API_URL}/api/selfcare/history?userId=${user.id}`),
+        fetch(`${API_URL}/api/selfcare/diagnosis?userId=${user.id}`),
+        fetch(`${API_URL}/api/selfcare/chat-history?userId=${user.id}`)
+      ]);
+
+      const progressData = await progressRes.json();
+      const diagnosisData = await diagnosisRes.json();
+      const chatData = await chatRes.json();
+
+      if (progressData && progressData.length > 0) {
         const moodScoreMap: Record<string, number> = {
-          "Better": 5, "A bit": 3, "Same": 1,
-          "Okay": 5, "Uneasy": 3, "Heavy": 2, "Stressed": 1, "Tired": 1
+          "Happy": 5, "Okay": 4, "Bored": 3, "Sleepy": 2, "Uneasy": 2, "Stressed": 1, "Angry": 1, "Heavy": 1, "Tired": 1,
+          "Better": 5, "A bit": 3, "Same": 1
         };
+
+        // 1. Calculate weighted average (70% latest session, 30% historical)
+        // This ensures the score responds quickly to new activity
+        const sessions = progressData; // progressData is sorted by timestamp desc
         
-        let total = 0;
-        let count = 0;
-        data.forEach((s: any) => {
+        const getSessionScore = (s: any) => {
           const mood = s.moodAfter || s.moodBefore;
-          if (mood && moodScoreMap[mood]) {
-            total += moodScoreMap[mood];
-            count++;
+          const completionRate = s.totalActivities > 0 ? (s.completedActivities?.length || 0) / s.totalActivities : 0;
+          let moodVal = (mood && moodScoreMap[mood]) ? moodScoreMap[mood] / 5 : 0.5;
+          return (moodVal * 0.5) + (completionRate * 0.5);
+        };
+
+        const latestScore = getSessionScore(sessions[0]);
+        
+        if (sessions.length === 1) {
+          setOverallProgress(latestScore);
+        } else {
+          // Average of the rest for baseline
+          let historyTotal = 0;
+          for (let i = 1; i < sessions.length; i++) {
+            historyTotal += getSessionScore(sessions[i]);
           }
-        });
-        if (count > 0) setOverallProgress((total / count) / 5);
+          const historyAvg = historyTotal / (sessions.length - 1);
+          
+          // Weighted: 70% current, 30% past
+          setOverallProgress((latestScore * 0.7) + (historyAvg * 0.3));
+        }
       }
+      if (Array.isArray(diagnosisData)) setDiagnosisHistory(diagnosisData);
+      if (Array.isArray(chatData)) setChatHistory(chatData);
     } catch (err) {
-      console.error("Error fetching progress:", err);
+      console.error("Error fetching data:", err);
+    } finally {
+      // Artifical delay for premium feel
+      setTimeout(() => setLoading(false), 800);
     }
   };
 
-  const fetchDiagnosisHistory = async () => {
-    try {
-      if (!user?.id) return;
-      const res = await fetch(`${API_URL}/api/selfcare/diagnosis?userId=${user.id}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setDiagnosisHistory(data);
-      }
-    } catch (err) {
-      console.error("Error fetching diagnosis history:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 2. Process historical diagnosis trends
+  const diagnosisTrendData = React.useMemo(() => {
+    if (!diagnosisHistory || diagnosisHistory.length === 0) return null;
+
+    // We want to show progress over time. diagnosisHistory is newest first.
+    const chronHistory = [...diagnosisHistory].reverse();
+    
+    // Labels: Date of analysis
+    const labels = chronHistory.map(d => {
+      const date = new Date(d.timestamp);
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    });
+
+    // Data: Average inverse distress (Wellbeing)
+    const dataset = chronHistory.map(d => {
+      const scores: any[] = Object.values(d.results || {});
+      if (scores.length === 0) return 5; 
+      const avgDistress = scores.reduce((a, b) => a + (b.score || 0), 0) / scores.length;
+      return Math.max(0.1, 10 - avgDistress);
+    });
+
+    return {
+      labels: labels.length > 5 ? labels.slice(-5) : labels,
+      datasets: [{ data: dataset.length > 5 ? dataset.slice(-5) : dataset }]
+    };
+  }, [diagnosisHistory]);
 
   useEffect(() => {
-    fetchProgress();
-    fetchDiagnosisHistory();
+    fetchData();
   }, [user]);
 
   return (
@@ -87,144 +159,157 @@ export default function HomeDashboard() {
           { maxWidth: containerMaxWidth, alignSelf: 'center', width: '100%' }
         ]}
       >
-
         
-        {/* NEW TOP SECTION: 8.8 Progress */}
-        <View style={styles.newHeaderContainer}>
+        {/* PREMIUM HEADER SECTION */}
+        <Animated.View entering={FadeInDown.delay(200)} style={styles.newHeaderContainer}>
           <Text style={styles.topGreeting}>
-            {user?.name?.split(' ')[0] || "Friend"}, how are you feeling today?
+            {user?.name?.split(' ')[0] || "Friend"}, how are you?
           </Text>
-          <View style={styles.scoreContainer}>
-            <Text style={styles.massiveScore}>{(overallProgress * 10).toFixed(1)}</Text>
-            <Ionicons name="sparkles" size={24} color="#FF7597" style={styles.scoreSparkle} />
+          <View style={[styles.scoreOuterCircle, loading && { borderColor: '#F5F5F5' }]}>
+             {loading ? (
+               <SkeletonPulse style={{ width: 100, height: 60, borderRadius: 10 }} />
+             ) : (
+               <>
+                 <View style={styles.scoreContainer}>
+                    <Text style={styles.massiveScore}>{(overallProgress * 10).toFixed(1)}</Text>
+                    <Ionicons name="sparkles" size={24} color="#FAD961" style={styles.scoreSparkle} />
+                 </View>
+                 <Text style={styles.scoreSubtext}>wellbeing score</Text>
+               </>
+             )}
           </View>
-          <Text style={styles.scoreSubtext}>your health score <Ionicons name="information-circle-outline" size={14} /></Text>
           
           <View style={styles.pillContainer}>
-            <TouchableOpacity style={styles.emergencyPill} onPress={() => router.push('/chat')}>
-              <Text style={styles.emergencyText}>Emergency</Text>
-              <Ionicons name="call" size={14} color="#FFF" />
+            <TouchableOpacity style={styles.emergencyPill} onPress={() => handleHapticPress(router, '/chat')}>
+              <Text style={styles.emergencyText}>Support</Text>
+              <Ionicons name="heart" size={16} color="#FFF" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconPill} onPress={() => router.push('/self-care')}>
-              <Ionicons name="medical" size={18} color="#555" />
+            <TouchableOpacity style={styles.iconPill} onPress={() => handleHapticPress(router, '/self-care')}>
+              <Ionicons name="flower-outline" size={20} color="#555" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconPill} onPress={() => router.push('/profile')}>
-              <Ionicons name="document-text-outline" size={18} color="#555" />
+            <TouchableOpacity style={styles.iconPill} onPress={() => handleHapticPress(router, '/profile')}>
+              <Ionicons name="settings-outline" size={20} color="#555" />
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
 
         {/* DAILY HIGHLIGHTS SCATTER SHAPES */}
-        <View style={styles.highlightsHeader}>
+        <Animated.View entering={FadeInUp.delay(400)} style={styles.highlightsHeader}>
           <View>
-            <Text style={styles.sectionTitle}>Daily highlights</Text>
-            <Text style={styles.actionDesc}>Keep going to complete all activities</Text>
+            <Text style={styles.sectionTitle}>Daily Explorations</Text>
+            <Text style={styles.actionDesc}>Floating shapes represent your paths</Text>
           </View>
-          <TouchableOpacity onPress={() => router.push('/self-care')}>
-            <Text style={styles.showAllText}>Show all ...</Text>
+          <TouchableOpacity onPress={() => handleHapticPress(router, '/self-care')}>
+            <Text style={styles.showAllText}>View All</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
         <View style={styles.shapesContainer}>
           <PlusShape 
-            title="therapist" 
-            subtitle="find help" 
-            onPress={() => router.push('/therapist')}
+            title="saved" 
+            subtitle="professionals" 
+            onPress={() => router.push('/saved')}
             style={{ top: 20, left: '30%' }} 
           />
           <BlobShape 
             title="self-care" 
-            subtitle="activities" 
+            subtitle="daily habits" 
             onPress={() => router.push('/self-care')}
             style={{ top: 10, right: -10 }} 
           />
           <HeartShape 
             title="pulse" 
-            subtitle="check-in chat" 
+            subtitle="check-in" 
             onPress={() => router.push('/chat')}
             style={{ top: 140, left: 10 }} 
           />
           <StarburstShape 
-            title="insights" 
+            title="result" 
             subtitle="history" 
-            onPress={() => router.push('/profile')}
+            onPress={() => router.push('/history')}
             style={{ top: 180, right: 10 }} 
           />
           <MoonShape 
-            title="mental" 
-            subtitle="history" 
-            onPress={() => router.push('/result')}
+            title="insights" 
+            subtitle="learn more" 
+            onPress={() => router.replace('/(tabs)/result')}
             style={{ top: 260, left: '20%' }} 
           />
         </View>
 
         {/* LATEST ANALYSIS & HISTORY SECTION */}
-        <View style={styles.analysisSection}>
+        <Animated.View entering={FadeInUp.delay(600)} style={styles.analysisSection}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Mental Insights</Text>
-            <TouchableOpacity onPress={() => router.push('/result' as any)}>
-              <Text style={styles.seeAllText}>See Detailed</Text>
+            <Text style={styles.sectionTitle}>Result Journey</Text>
+            <TouchableOpacity onPress={() => handleHapticReplace(router, '/(tabs)/chat')}>
+              <Text style={styles.seeAllText}>New Analysis</Text>
             </TouchableOpacity>
           </View>
           
-          {diagnosisHistory.length > 0 ? (
+          {loading ? (
+            <View style={[styles.insightsContainer, { height: 220, justifyContent: 'center', alignItems: 'center' }]}>
+               <SkeletonPulse style={{ width: '100%', height: '100%', borderRadius: 24 }} />
+            </View>
+          ) : chatHistory.length > 0 ? (
             <View style={styles.insightsContainer}>
-               <BarChart
-                data={{
-                  labels: diagnosisHistory[diagnosisHistory.length - 1].labels,
-                  datasets: [{ 
-                    data: diagnosisHistory[diagnosisHistory.length - 1].labels.map((l: string) => 
-                      diagnosisHistory[diagnosisHistory.length - 1].results[l]?.score || 0
-                    ) 
-                  }],
-                }}
-                width={contentWidth - 60}
-                height={160}
-                yAxisLabel=""
-                yAxisSuffix=""
-                fromZero
-                chartConfig={{
-                  backgroundColor: "#fff",
-                  backgroundGradientFrom: "#fff",
-                  backgroundGradientTo: "#fff",
-                  color: (opacity = 1) => `rgba(242, 140, 100, ${opacity})`,
-                  labelColor: () => "#8C8381",
-                  barPercentage: 0.7,
-                  decimalPlaces: 0,
-                  fillShadowGradient: "#FF7597",
-                  fillShadowGradientOpacity: 1,
-                  useShadowColorFromDataset: false,
-                }}
-                style={{ marginVertical: 10, borderRadius: 16 }}
-                showValuesOnTopOfBars
-              />
-              
-              <Text style={styles.historyLabel}>Recent Check-ins</Text>
+              <Text style={styles.historyLabel}>Wellbeing Journey (Over Time)</Text>
+              {diagnosisTrendData && (
+                <View style={{ marginBottom: 20 }}>
+                  <LineChart
+                    data={diagnosisTrendData}
+                    width={screenWidth - 80}
+                    height={180}
+                    yAxisLabel=""
+                    yAxisSuffix=""
+                    chartConfig={{
+                      backgroundGradientFrom: "#fff",
+                      backgroundGradientTo: "#FAF9F6",
+                      color: (opacity = 1) => `rgba(79, 172, 254, ${opacity})`, 
+                      labelColor: (opacity = 1) => `rgba(74, 74, 74, ${opacity})`,
+                      propsForDots: { r: "4", strokeWidth: "2", stroke: "#4FACFE" },
+                      decimalPlaces: 1,
+                    }}
+                    bezier
+                    style={{ borderRadius: 16 }}
+                  />
+                </View>
+              )}
+              <Text style={styles.historyLabel}>Recent Result History</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.historyScroll}>
-                {diagnosisHistory.map((item, index) => (
-                  <TouchableOpacity key={item._id} style={styles.resultCard} onPress={() => router.push('/result' as any)}>
-                    <View style={styles.resultHeader}>
-                      <Text style={styles.resultNumber}>
-                        {item.createdAt ? new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : `Day ${index + 1}`}
-                      </Text>
-                      <Ionicons name="ellipse" size={8} color={index === diagnosisHistory.length - 1 ? "#4CAF50" : "#D1D1D1"} />
-                    </View>
-                    <View style={styles.labelPreview}>
-                      <Text style={styles.previewText} numberOfLines={1}>
-                        {item.labels[0]} + {item.labels.length - 1} more
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                {chatHistory.map((item, index) => {
+                  const date = new Date(item.createdAt);
+                  const today = new Date();
+                  const diffTime = Math.abs(today.getTime() - date.getTime());
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  
+                  let dateLabel = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                  if (diffDays === 1) dateLabel = "Today";
+                  else if (diffDays === 2) dateLabel = "Yesterday";
+                  else if (diffDays <= 7) dateLabel = `${diffDays-1}d ago`;
+
+                  return (
+                    <TouchableOpacity key={item._id} style={styles.resultCard} onPress={() => router.push(`/(tabs)/result?id=${item.diagnosisId?._id}`)}>
+                      <View style={styles.resultHeader}>
+                        <Text style={styles.resultNumber}>{dateLabel}</Text>
+                        <Ionicons name="analytics-outline" size={14} color="#4FACFE" />
+                      </View>
+                      <View style={styles.labelPreview}>
+                        <Text style={styles.previewText} numberOfLines={2}>
+                          {item.diagnosisId?.labels ? item.diagnosisId.labels.join(", ") : "Check-in complete"}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             </View>
           ) : (
             <View style={styles.emptyResults}>
-              <Ionicons name="analytics-outline" size={48} color="#D1D1D1" />
-              <Text style={styles.emptyText}>No insights available yet. Take a Pulse Check to start tracking!</Text>
+              <Ionicons name="chatbubbles-outline" size={48} color="#D1D1D1" />
+              <Text style={styles.emptyText}>No chat history yet. Start a conversation to see your journey!</Text>
             </View>
           )}
-        </View>
+        </Animated.View>
 
       </ScrollView>
     </SafeAreaView>
@@ -232,158 +317,31 @@ export default function HomeDashboard() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAF9F6',
-  },
   scrollContent: {
     padding: 20,
-    paddingBottom: 100,
+    paddingBottom: 110,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 25,
+  skeleton: {
+    backgroundColor: '#E1E9EE',
   },
-  greeting: {
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#353A40',
+    marginBottom: 4,
+  },
+  actionDesc: {
+    fontSize: 13,
     color: '#8C8381',
     fontWeight: '500',
   },
-  userName: {
-    fontSize: 24,
+  showAllText: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#353A40',
-  },
-  profileButton: {
-    padding: 5,
-  },
-  progressCard: {
-    borderRadius: 24,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 30,
-    elevation: 4,
-    shadowColor: '#F28C64',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-  },
-  progressTextContainer: {
-    flex: 1,
-  },
-  progressTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  progressSubtitle: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 13,
-    marginTop: 4,
-  },
-  progressDetailBtn: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    marginTop: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-  },
-  progressDetailText: {
-    color: '#F28C64',
-    fontSize: 12,
-    fontWeight: '700',
-    marginRight: 5,
-  },
-  chartContainer: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressPercent: {
-    position: 'absolute',
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  yogaCard: {
-    height: 160,
-    borderRadius: 24,
-    marginBottom: 30,
-    backgroundColor: '#FFF',
-    elevation: 3,
-    shadowColor: '#F28C64',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    overflow: 'hidden',
-  },
-  yogaGradient: {
-    flex: 1,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  yogaIconWrap: {
-    position: 'absolute',
-    right: -10,
-    top: -10,
-  },
-  abstractIcon: {
-    transform: [{ rotate: '15deg' }],
-  },
-  yogaContent: {
-    flex: 1,
-    zIndex: 1,
-  },
-  yogaBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#FDF2EE',
-  },
-  yogaBadgeText: {
-    color: '#F28C64',
-    fontSize: 10,
-    fontWeight: '700',
-    marginLeft: 4,
-  },
-  yogaTitle: {
-    color: '#4A3F3D',
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  yogaSub: {
-    color: '#8C8381',
-    fontSize: 12,
-    marginTop: 2,
-    marginBottom: 15,
-  },
-  startBtnSmall: {
-    backgroundColor: '#F28C64',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-  },
-  startBtnText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '700',
+    color: '#4FACFE',
   },
   analysisSection: {
+    marginTop: 20,
     marginBottom: 20,
   },
   sectionHeaderRow: {
@@ -393,187 +351,62 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   seeAllText: {
-    color: '#F28C64',
+    color: '#4FACFE',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   insightsContainer: {
     backgroundColor: '#FFF',
-    borderRadius: 24,
-    padding: 15,
-    elevation: 2,
+    borderRadius: 32,
+    padding: 20,
+    elevation: 4,
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowRadius: 10,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 8 },
   },
   historyLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#353A40',
-    marginTop: 15,
-    marginBottom: 10,
-  },
-  labelPreview: {
-    marginTop: 5,
-  },
-  previewText: {
-    fontSize: 12,
-    color: '#8C8381',
-  },
-  latestAnalysisCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 30,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-  },
-  fullAnalysisBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#FDF2EE',
-  },
-  fullAnalysisText: {
-    color: '#F28C64',
-    fontSize: 14,
-    fontWeight: '600',
-    marginRight: 4,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#353A40',
-    marginBottom: 15,
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  actionCard: {
-    width: '48%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-  },
-  iconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  actionLabel: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#353A40',
-  },
-  actionDesc: {
-    fontSize: 12,
-    color: '#8C8381',
-    marginTop: 2,
-  },
-  tipCard: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF',
-    padding: 16,
-    borderRadius: 20,
-    marginTop: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(242,140,100,0.1)',
-  },
-  tipContent: {
-    marginLeft: 15,
-    flex: 1,
-  },
-  tipTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#F28C64',
-  },
-  tipText: {
-    fontSize: 12,
-    color: '#5C5C5C',
-    marginTop: 2,
-    lineHeight: 18,
+    marginTop: 20,
+    marginBottom: 12,
   },
   historyScroll: {
     marginTop: 5,
-    marginBottom: 20,
   },
   resultCard: {
-    backgroundColor: '#F9F9F9',
-    width: 140,
-    borderRadius: 16,
-    padding: 12,
+    backgroundColor: '#FAF9F6',
+    width: 130,
+    borderRadius: 20,
+    padding: 15,
     marginRight: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.02)',
+    borderColor: 'rgba(0,0,0,0.03)',
   },
   resultHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   resultNumber: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: '#353A40',
   },
-  labelsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    height: 60,
-  },
-  labelBadge: {
-    backgroundColor: '#FFF3E0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginRight: 6,
-    marginBottom: 6,
-  },
-  labelBadgeText: {
-    fontSize: 10,
-    color: '#E65100',
-    fontWeight: '600',
-  },
-  moreText: {
-    fontSize: 10,
-    color: '#8C8381',
+  labelPreview: {
     marginTop: 4,
   },
-  viewResultBtn: {
-    marginTop: 10,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F5F5F5',
-    alignItems: 'center',
-  },
-  viewResultText: {
+  previewText: {
     fontSize: 12,
-    color: '#F28C64',
-    fontWeight: '700',
+    color: '#8C8381',
+    fontWeight: '600',
   },
   emptyResults: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 30,
+    borderRadius: 32,
+    padding: 40,
     alignItems: 'center',
     justifyContent: 'center',
     borderStyle: 'dashed',
@@ -584,20 +417,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#8C8381',
     textAlign: 'center',
-    marginTop: 10,
-    lineHeight: 20,
+    marginTop: 15,
+    lineHeight: 22,
+    paddingHorizontal: 20,
   },
-  newHeaderContainer: { alignItems: 'center', marginTop: 30, marginBottom: 20 },
-  topGreeting: { fontSize: 18, color: '#353A40', fontWeight: '600', marginBottom: 10 },
+  newHeaderContainer: { alignItems: 'center', marginTop: 20, marginBottom: 30 },
+  topGreeting: { fontSize: 18, color: '#353A40', fontWeight: '700', marginBottom: 20 },
+  scoreOuterCircle: {
+      width: 200,
+      height: 200,
+      borderRadius: 100,
+      backgroundColor: '#FFF',
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderWidth: 10,
+      borderColor: '#F0F7FF',
+      shadowColor: '#4FACFE',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.1,
+      shadowRadius: 20,
+      elevation: 5,
+      marginBottom: 25,
+      overflow: 'hidden',
+  },
   scoreContainer: { flexDirection: 'row', alignItems: 'flex-start' },
-  massiveScore: { fontSize: 90, fontWeight: '800', color: '#353A40', lineHeight: 100 },
-  scoreSparkle: { marginTop: 15, marginLeft: -5 },
-  scoreSubtext: { fontSize: 14, color: '#595F69', fontWeight: '500', marginBottom: 25 },
-  pillContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  emergencyPill: { backgroundColor: '#FF7597', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  emergencyText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
-  iconPill: { backgroundColor: '#FFF', padding: 10, borderRadius: 20, elevation: 1, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 3 },
-  highlightsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 30, marginBottom: 10 },
-  showAllText: { fontSize: 14, fontWeight: '600', color: '#595F69' },
-  shapesContainer: { height: 420, width: '100%', position: 'relative', marginTop: 5 },
+  massiveScore: { fontSize: 72, fontWeight: '900', color: '#353A40', lineHeight: 80 },
+  scoreSparkle: { marginTop: 10, marginLeft: -2 },
+  scoreSubtext: { fontSize: 13, color: '#353A40', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6 },
+  pillContainer: { flexDirection: 'row', alignItems: 'center', gap: 15 },
+  emergencyPill: { backgroundColor: '#FFDAB9', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#FFDAB9', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  emergencyText: { color: '#353A40', fontWeight: '800', fontSize: 14 },
+  iconPill: { backgroundColor: '#FFF', width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
+  highlightsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 10, marginBottom: 20 },
+  shapesContainer: { height: 420, width: '100%', position: 'relative' },
 });

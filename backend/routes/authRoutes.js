@@ -58,6 +58,7 @@ router.post("/login", async (req, res) => {
                 name: user.name,
                 email: user.email,
                 role: user.role,
+                therapistProfile: user.therapistProfile,
             },
         });
     } catch (error) {

@@ -70,11 +70,41 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="history"
+        options={{
+          title: 'History',
+          href: null,
+          tabBarIcon: ({ color }) => (
+            <Ionicons size={24} name="time-outline" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="result"
+        options={{
+          title: 'Insights',
+          href: null,
+          tabBarIcon: ({ color }) => (
+            <Ionicons size={24} name="analytics-outline" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => (
             <Ionicons size={24} name="person-outline" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="saved"
+        options={{
+          title: 'Saved',
+          href: null,
+          tabBarIcon: ({ color }) => (
+            <Ionicons size={24} name="bookmark-outline" color={color} />
           ),
         }}
       />

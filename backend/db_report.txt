@@ -1,0 +1,3 @@
+Total therapist users found: 8
+Found Meera: {"_id":"69c2a8711cc64421cbb1f80d","name":"Dr. Meera","email":"drmeera@emora.com","password":"$2b$10$SOatYbV6L2sWbGgAz7/Txe2lebsIWrUv5Btk/3W.W79TbJHUYV7f2","role":"therapist","savedTherapists":[],"bookedTherapists":[],"therapistProfile":"69c1735d58f2e036738bac85","createdAt":"2026-03-24T15:06:25.476Z","updatedAt":"2026-03-24T15:06:25.476Z","__v":0}
+All therapist emails: drmeera@emora.com, mrrajeev@emora.com, drananya@emora.com, mrarun@emora.com, mspriya@emora.com, mssunita@emora.com, drnisha@emora.com, drannieflexydsilva@emora.com

@@ -15,6 +15,11 @@ const diagnosisSchema = new mongoose.Schema(
       type: [String], // Array of keys like ["Stress", "Anxiety"]
       required: true,
     },
+    focus: {
+      type: String,
+      enum: ["Individual", "Couple"],
+      default: "Individual"
+    },
     timestamp: {
       type: Date,
       default: Date.now,
