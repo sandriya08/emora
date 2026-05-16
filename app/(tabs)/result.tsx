@@ -8,6 +8,8 @@ import { API_URL } from "../../constants/api";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { confirmAction } from "@/utils/alert";
 import Animated, { 
   FadeInUp, 
   FadeInDown,
@@ -39,7 +41,7 @@ const SkeletonPulse = ({ style }: { style?: any }) => {
 };
 
 export default function ResultScreen() {
-    const { diagnosisResult, setDiagnosisResult, fetchLatest } = useDiagnosis();
+    const { diagnosisResult, setDiagnosisResult, fetchLatest, resetDiagnosis } = useDiagnosis();
     const { user } = useAuth();
     const { id } = useLocalSearchParams<{ id?: string }>();
     const router = useRouter();
@@ -49,7 +51,7 @@ export default function ResultScreen() {
         if (!user?.id) return;
         try {
             if (id) {
-                const url = `${API_URL}/api/selfcare/diagnosis/${id}`;
+                const url = `${API_URL}/api/selfcare/diagnosis/${id}?userId=${user.id}`;
                 const res = await fetch(url);
                 if (res.ok) {
                     const data = await res.json();
@@ -152,7 +154,7 @@ export default function ResultScreen() {
     const CircularProgress = () => (
       <Animated.View entering={FadeInDown.delay(100)} style={styles.circularContainer}>
         <LinearGradient
-          colors={["#FFFFFF", "rgba(255, 117, 151, 0.05)"]}
+          colors={["#FFFFFF", "rgba(250, 215, 160, 0.05)"]}
           style={styles.circularBg}
         >
           <ProgressChart
@@ -166,9 +168,9 @@ export default function ResultScreen() {
             radius={70}
             chartConfig={{
               backgroundColor: "transparent",
-              backgroundGradientFrom: "rgba(255,255,255,0)",
-              backgroundGradientTo: "rgba(255,255,255,0)",
-              color: (opacity = 1) => `rgba(255, 117, 151, ${opacity})`,
+              backgroundGradientFrom: "#FFFFFF",
+              backgroundGradientTo: "#FFFFFF",
+              color: (opacity = 1) => `rgba(250, 215, 160, ${opacity})`,
               labelColor: (opacity = 1) => `rgba(74, 63, 61, ${opacity})`,
             }}
             hideLegend={true}
@@ -199,15 +201,40 @@ export default function ResultScreen() {
                             </Animated.Text>
                         )}
                     </View>
-                    <TouchableOpacity 
-                        style={styles.closeButton} 
-                        onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                            router.push('/history');
-                        }}
-                    >
-                        <Ionicons name="close" size={28} color="#353A40" />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <TouchableOpacity 
+                            style={styles.resetBtn} 
+                            onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                confirmAction(
+                                    "Reset Assessment",
+                                    "Are you sure you want to clear your current progress and start fresh?",
+                                    async () => {
+                                        if (user?.id) {
+                                            await AsyncStorage.removeItem(`chat_msg_${user.id}`);
+                                            await AsyncStorage.removeItem(`chat_idx_${user.id}`);
+                                            await AsyncStorage.removeItem(`chat_comp_${user.id}`);
+                                        }
+                                        resetDiagnosis();
+                                        router.replace("/(tabs)/chat");
+                                    },
+                                    "Start Fresh"
+                                );
+                            }}
+                        >
+                             <Text style={styles.resetText}>Reset Pulse</Text>
+                             <Ionicons name="refresh-outline" size={16} color="#FAD7A0" />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                            style={styles.closeButton} 
+                            onPress={() => {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                router.push('/history');
+                            }}
+                        >
+                            <Ionicons name="close" size={28} color="#FAD7A0" />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Wellbeing Score Chart */}
@@ -235,41 +262,64 @@ export default function ResultScreen() {
             <Animated.View entering={FadeInUp.delay(800)} style={styles.chartSection}>
                 <Text style={styles.subTitle}>Severity Distribution</Text>
                 <View style={styles.chartWrapper}>
-                    <BarChart
-                        data={{
-                            labels: labels.map(l => l.length > 8 ? l.substring(0, 8) + '..' : l),
-                            datasets: [{ data: scores }],
-                        }}
-                        width={screenWidth - 60}
-                        height={220}
-                        yAxisLabel=""
-                        yAxisSuffix=""
-                        fromZero
-                        chartConfig={{
-                            backgroundGradientFrom: "#fff",
-                            backgroundGradientTo: "#fff",
-                            color: (opacity = 1) => `rgba(255, 117, 151, ${opacity})`,
-                            labelColor: () => "#4A4A4A",
-                            barPercentage: 0.6,
-                            decimalPlaces: 0,
-                            fillShadowGradient: "#FF7597",
-                            fillShadowGradientOpacity: 1,
-                        }}
-                        style={{ borderRadius: 28 }}
-                        showValuesOnTopOfBars
-                    />
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <BarChart
+                            data={{
+                                labels: labels.map(l => l.length > 8 ? l.substring(0, 8) + '..' : l),
+                                datasets: [{ data: scores }],
+                            }}
+                            width={Math.max(screenWidth - 40, labels.length * 100)}
+                            height={300}
+                            yAxisLabel=""
+                            yAxisSuffix=""
+                            fromZero={true}
+                            chartConfig={{
+                                backgroundGradientFrom: "#fff",
+                                backgroundGradientTo: "#fff",
+                                color: (opacity = 1) => `rgba(74, 54, 45, ${opacity})`, // Solid Dark Brown for bars & values
+                                labelColor: () => "#000000", // Pitch black for axis labels
+                                barPercentage: 0.7,
+                                decimalPlaces: 0,
+                                fillShadowGradient: "#4A362D", // Dark brown bars
+                                fillShadowGradientOpacity: 1,
+                                propsForLabels: {
+                                    fontSize: 15,
+                                    fontWeight: '900', // Extra bold
+                                },
+                                propsForBackgroundLines: {
+                                    strokeDasharray: "", 
+                                    stroke: "#D1D1D1",
+                                    strokeWidth: 1.5,
+                                },
+                            }}
+                            style={{ 
+                                borderRadius: 28, 
+                                paddingRight: 40, 
+                                marginTop: 20,
+                                paddingLeft: 10 
+                            }}
+                            showValuesOnTopOfBars={true}
+                            verticalLabelRotation={0}
+                            segments={Math.max(...scores) < 3 ? Math.max(...scores) : 4}
+                        />
+                    </ScrollView>
                 </View>
             </Animated.View>
 
-            <TouchableOpacity 
-                style={styles.mainAction} 
-                onPress={() => handleHapticPress(router, { pathname: "/self-care" as any, params: { diagnoses: JSON.stringify(labels) } })}
-            >
-                <LinearGradient colors={['#FFDAB9', '#FFB347']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.gradientButton}>
-                    <Text style={styles.buttonText}>Personalized Self-Care</Text>
-                    <Ionicons name="arrow-forward" size={20} color="#FFF" />
-                </LinearGradient>
-            </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.mainActionButton} 
+                  onPress={() => handleHapticPress(router, { pathname: "/self-care" as any, params: { diagnoses: JSON.stringify(labels) } })}
+                >
+                    <LinearGradient
+                      colors={['#FAD7A0', '#FFB088']} // Gold Gradient
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.gradientButton}
+                    >
+                      <Text style={styles.navyActionButtonText}>Personalized Self-Care</Text>
+                      <Ionicons name="arrow-forward" size={20} color="#4A362D" />
+                    </LinearGradient>
+                </TouchableOpacity>
 
             <TouchableOpacity style={styles.secondary} onPress={() => handleHapticReplace(router, "/(tabs)")}>
                 <Text style={styles.secondaryText}>Back to Dashboard</Text>
@@ -293,7 +343,30 @@ const styles = StyleSheet.create({
     chartSection: { marginTop: 20 },
     chartWrapper: { backgroundColor: '#FFF', borderRadius: 28, padding: 15, elevation: 2 },
     mainAction: { marginTop: 30, marginBottom: 20 },
-    gradientButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 18, borderRadius: 24, gap: 10 },
+    mainActionButton: {
+        marginTop: 30,
+        marginBottom: 15,
+        borderRadius: 24,
+        overflow: 'hidden',
+        elevation: 8,
+        shadowColor: "#FAD7A0",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+    },
+    navyActionButtonText: {
+        color: "#4A362D", // Dark brown for contrast
+        fontWeight: "900",
+        fontSize: 17,
+        letterSpacing: 0.5,
+    },
+    gradientButton: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        paddingVertical: 20, 
+        gap: 12 
+    },
     button: { backgroundColor: "#353A40", padding: 16, borderRadius: 30, alignItems: "center", marginVertical: 20 },
     buttonText: { color: "#353A40", fontWeight: "700", fontSize: 16 },
     secondary: { alignItems: "center", marginBottom: 40 },
@@ -313,6 +386,24 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 10,
     },
+    resetBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: "#fff",
+        paddingHorizontal: 15,
+        paddingVertical: 10,
+        borderRadius: 20,
+        gap: 5,
+        elevation: 4,
+        shadowColor: '#000',
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+    },
+    resetText: {
+        fontSize: 13,
+        fontWeight: '800',
+        color: '#FAD7A0',
+    },
     bgBlob: {
         position: 'absolute',
         top: -100,
@@ -320,7 +411,7 @@ const styles = StyleSheet.create({
         width: 300,
         height: 300,
         borderRadius: 150,
-        backgroundColor: 'rgba(255, 117, 151, 0.05)',
+        backgroundColor: 'rgba(53, 58, 64, 0.03)',
         zIndex: -1,
     },
     bgBlobLeft: {
@@ -360,7 +451,7 @@ const styles = StyleSheet.create({
     circularScore: {
         fontSize: 36,
         fontWeight: '900',
-        color: '#353A40',
+        color: '#FAD7A0', // Gold
         letterSpacing: -1,
     },
     circularLabel: {

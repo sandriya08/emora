@@ -19,6 +19,7 @@ type DiagnosisContextType = {
     diagnosisFocus: string | null;
     setDiagnosisResult: (data: DiagnosisResult, labels: string[], date?: string, focus?: string) => void;
     fetchLatest: (userId: string, apiUrl: string) => Promise<void>;
+    resetDiagnosis: () => void;
 };
 
 const DiagnosisContext = createContext<DiagnosisContextType | null>(null);
@@ -55,8 +56,23 @@ export const DiagnosisProvider = ({ children }: { children: ReactNode }) => {
         }
     };
  
+    const resetDiagnosis = () => {
+        setDiagnosisResultState(null);
+        setDiagnosisLabels([]);
+        setDiagnosisDate(null);
+        setDiagnosisFocus(null);
+    };
+ 
     return (
-        <DiagnosisContext.Provider value={{ diagnosisResult, diagnosisLabels, diagnosisDate, diagnosisFocus, setDiagnosisResult, fetchLatest }}>
+        <DiagnosisContext.Provider value={{ 
+            diagnosisResult, 
+            diagnosisLabels, 
+            diagnosisDate, 
+            diagnosisFocus, 
+            setDiagnosisResult, 
+            fetchLatest,
+            resetDiagnosis 
+        }}>
             {children}
         </DiagnosisContext.Provider>
     );

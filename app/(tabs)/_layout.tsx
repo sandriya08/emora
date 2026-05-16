@@ -15,18 +15,22 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: '#FF7597',
-        tabBarInactiveTintColor: '#B9B4AB',
+        tabBarInactiveTintColor: '#94A3B8',
         tabBarStyle: { 
-          backgroundColor: '#FFFFFF', 
+          backgroundColor: '#2D3436', // Muted Charcoal/Slate instead of Black
           borderTopWidth: 0,
           position: 'absolute',
           bottom: 25,
           left: 20,
           right: 20,
-          elevation: 5,
+          elevation: 8,
           borderRadius: 40,
           height: 65,
           paddingBottom: 0,
+          shadowColor: '#000',
+          shadowOpacity: 0.15,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 4 },
         },
         tabBarShowLabel: false,
         headerShown: false,
@@ -83,7 +87,6 @@ export default function TabLayout() {
         name="result"
         options={{
           title: 'Insights',
-          href: null,
           tabBarIcon: ({ color }) => (
             <Ionicons size={24} name="analytics-outline" color={color} />
           ),

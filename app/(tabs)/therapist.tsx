@@ -15,6 +15,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { confirmAction } from "@/utils/alert";
 import Animated, {
   interpolate,
   useAnimatedStyle,
@@ -33,11 +35,13 @@ const { width, height } = Dimensions.get("window");
 // Colors: "Love" Theme Refined
 const COLORS = {
   cream: "#FAF9F6",
-  pink: "#FF7597", // Consistent pink
-  navy: "#353A40", // Navy Text/Buttons
-  softPink: "#F2E1D9",
+  pink: "#FF7597", // Reverted to Pink for tabs/chips
+  navy: "#4A362D", // Updated to Dark Brown for consistency
+  softPink: "#FAF3F5", // Lighter/Muted Rose
   sage: "#A8B6AF",
   white: "#FFFFFF",
+  gold: "#FAD7A0",
+  lavender: "#D2B4DE",
 };
 
 interface TherapistMatch {
@@ -60,7 +64,7 @@ const SkeletonPulse = ({ style }: { style?: any }) => {
 
 export default function TherapistMatchingScreen() {
   const { user } = useAuth();
-  const { diagnosisResult, diagnosisLabels, diagnosisFocus, fetchLatest } = useDiagnosis();
+  const { diagnosisResult, diagnosisLabels, diagnosisFocus, fetchLatest, resetDiagnosis } = useDiagnosis();
   const [matches, setMatches] = useState<TherapistMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [savedIds, setSavedIds] = useState<string[]>([]);
@@ -75,7 +79,7 @@ export default function TherapistMatchingScreen() {
 
   const userFeatures = useMemo(() => {
     if (!diagnosisResult)
-      return [0.8, 0.2, 0.6, 0.7, 0.5, 0.4, 0.6, 0.5];
+      return [0, 0, 0, 0, 0, 0, 0, 0];
 
     const getScore = (key: string) =>
       Math.min((diagnosisResult[key]?.score || 0) / 5, 1);
@@ -121,6 +125,11 @@ export default function TherapistMatchingScreen() {
 
   const fetchMatches = async () => {
     try {
+      if (!diagnosisResult) {
+        setMatches([]);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       const res = await fetch(`${API_URL}/api/therapist/match`, {
         method: "POST",
@@ -146,6 +155,10 @@ export default function TherapistMatchingScreen() {
       setTimeout(() => setLoading(false), 1000);
     }
   };
+
+  const filteredMatches = useMemo(() => {
+    return matches.filter(m => !savedIds.includes(m._id));
+  }, [matches, savedIds]);
 
   const [viewMode, setViewMode] = useState<'swipe' | 'list'>('swipe');
 
@@ -213,6 +226,24 @@ export default function TherapistMatchingScreen() {
   const nextCard = () => {
     setCurrentIndex(prev => prev + 1);
   };
+    
+  const resetAssessment = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    confirmAction(
+      "Reset Assessment",
+      "Are you sure you want to clear your current progress and start fresh?",
+      async () => {
+        if (user?.id) {
+          await AsyncStorage.removeItem(`chat_msg_${user.id}`);
+          await AsyncStorage.removeItem(`chat_idx_${user.id}`);
+          await AsyncStorage.removeItem(`chat_comp_${user.id}`);
+        }
+        resetDiagnosis();
+        router.replace("/(tabs)/chat");
+      },
+      "Start Fresh"
+    );
+  };
 
   if (loading) {
     return (
@@ -228,7 +259,7 @@ export default function TherapistMatchingScreen() {
   const renderTherapistList = () => {
     return (
       <FlatList
-        data={matches}
+        data={filteredMatches}
         keyExtractor={(item) => item._id}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => {
@@ -319,7 +350,7 @@ export default function TherapistMatchingScreen() {
             <View style={styles.cardHeader}>
               <View style={styles.headerLeft}>
                 {item.isSpecialist && (
-                  <View style={styles.specialistBadge}>
+                  <View style={[styles.specialistBadge, { backgroundColor: COLORS.gold }]}>
                     <Ionicons name="ribbon" size={14} color="#FFF" />
                     <Text style={styles.specialistText}>Specialist</Text>
                   </View>
@@ -334,31 +365,33 @@ export default function TherapistMatchingScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.type}>{item.type}</Text>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
+              <Text style={styles.name}>{item.name}</Text>
+              <Text style={styles.type}>{item.type}</Text>
 
-            <Text style={styles.description}>
-              Expert in helping you navigate {item.specialization.slice(0, 2).join(" & ").toLowerCase()}.
-            </Text>
+              <Text style={styles.description}>
+                Expert in helping you navigate {item.specialization.slice(0, 2).join(" & ").toLowerCase()}.
+              </Text>
 
-            <View style={styles.tags}>
-              {item.specialization.map((t: string, i: number) => (
-                <View key={i} style={styles.tag}>
-                  <Text style={styles.tagText}>{t}</Text>
-                </View>
-              ))}
-            </View>
+              <View style={styles.tags}>
+                {item.specialization.map((t: string, i: number) => (
+                  <View key={i} style={styles.tag}>
+                    <Text style={styles.tagText}>{t}</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
 
             <TouchableOpacity 
               style={styles.mainActionTouch}
               onPress={() => openBooking(item)}
             >
               <LinearGradient
-                colors={['#FF7597', '#FF9EAE']}
+                colors={['#FAD7A0', '#FFB088']}
                 style={styles.mainButton}
               >
                 <Text style={styles.mainButtonText}>Book Session</Text>
-                <Ionicons name="calendar-outline" size={20} color="#FFF" />
+                <Ionicons name="calendar-outline" size={20} color="#4A362D" />
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -374,15 +407,24 @@ export default function TherapistMatchingScreen() {
           <Text style={styles.screenTitle}>Your Matches</Text>
           <Text style={styles.screenSubtitle}>Hand-picked for you</Text>
         </View>
-        <TouchableOpacity 
-          style={styles.viewToggle} 
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setViewMode(prev => prev === 'swipe' ? 'list' : 'swipe');
-          }}
-        >
-          <Ionicons name={viewMode === 'swipe' ? "list" : "layers"} size={24} color={COLORS.navy} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <TouchableOpacity 
+            style={styles.resetBtn} 
+            onPress={resetAssessment}
+          >
+             <Text style={styles.resetText}>Reset</Text>
+             <Ionicons name="refresh-outline" size={16} color={COLORS.gold} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.viewToggle} 
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setViewMode(prev => prev === 'swipe' ? 'list' : 'swipe');
+            }}
+          >
+            <Ionicons name={viewMode === 'swipe' ? "list" : "layers"} size={24} color={COLORS.pink} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.focusContainer}>
@@ -391,7 +433,7 @@ export default function TherapistMatchingScreen() {
           {['Individual', 'Couple'].map(focus => (
             <TouchableOpacity 
               key={focus} 
-              style={[styles.focusChip, selectedFocus === focus && styles.focusChipActive]}
+              style={[styles.focusChip, selectedFocus === focus && { backgroundColor: COLORS.gold }]}
               onPress={() => {
                 Haptics.selectionAsync();
                 setSelectedFocus(focus);
@@ -410,9 +452,31 @@ export default function TherapistMatchingScreen() {
         </ScrollView>
       </View>
 
-      {viewMode === 'swipe' ? (
+      {!diagnosisResult ? (
+        <View style={styles.emptyStateContainer}>
+          <LinearGradient
+            colors={["#F8F9FA", "#FFFFFF"]}
+            style={styles.emptyStateCard}
+          >
+            <View style={styles.emptyStateIconCircle}>
+              <Ionicons name="people-outline" size={40} color="#353A40" />
+            </View>
+            <Text style={styles.emptyStateTitle}>Find Your Guide</Text>
+            <Text style={styles.emptyStateDescription}>
+              Complete an emotional assessment to find therapists hand-picked for your specific needs and goals.
+            </Text>
+            <TouchableOpacity
+              style={[styles.emptyStateButton, { backgroundColor: COLORS.gold }]}
+              onPress={() => router.replace("/(tabs)/chat")}
+            >
+              <Text style={styles.emptyStateButtonText}>Start Assessment</Text>
+              <Ionicons name="sparkles" size={18} color="#FFF" />
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      ) : viewMode === 'swipe' ? (
         <View style={styles.cardStack}>
-          {matches.slice(currentIndex, currentIndex + 3).reverse().map((item, index, arr) => (
+          {filteredMatches.slice(currentIndex, currentIndex + 3).reverse().map((item, index, arr) => (
             <View key={item._id} style={StyleSheet.absoluteFill}>
               <TinderCard 
                 item={item} 
@@ -421,7 +485,7 @@ export default function TherapistMatchingScreen() {
               />
             </View>
           ))}
-          {matches.length <= currentIndex && (
+          {filteredMatches.length <= currentIndex && (
             <View style={styles.center}>
               <Ionicons name="sparkles-outline" size={60} color="#D1D1D1" />
               <Text style={styles.emptyText}>You've seen all your matches!</Text>
@@ -595,7 +659,7 @@ const styles = StyleSheet.create({
   type: {
     fontSize: 15,
     fontWeight: "700",
-    color: COLORS.pink,
+    color: "#8C8381",
     marginBottom: 15,
   },
   description: {
@@ -633,9 +697,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 18,
     borderRadius: 24,
+    backgroundColor: COLORS.navy,
     gap: 10,
     elevation: 8,
-    shadowColor: COLORS.pink,
+    shadowColor: COLORS.navy,
     shadowOpacity: 0.3,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -676,6 +741,24 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowRadius: 10,
+  },
+  resetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 20,
+    gap: 5,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+  },
+  resetText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.gold,
   },
   listContent: {
     padding: 20,
@@ -848,5 +931,68 @@ const styles = StyleSheet.create({
   },
   focusChipTextActive: {
     color: '#FFF',
+  },
+  // Empty State Styles
+  emptyStateContainer: {
+    padding: 20,
+    marginTop: 20,
+  },
+  emptyStateCard: {
+    borderRadius: 32,
+    padding: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#FFE0E6",
+    shadowColor: "#FF7597",
+    shadowOpacity: 0.1,
+    shadowRadius: 15,
+    elevation: 3,
+  },
+  emptyStateIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#FFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  emptyStateTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: COLORS.navy,
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  emptyStateDescription: {
+    fontSize: 14,
+    color: "#8C8381",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 25,
+    paddingHorizontal: 10,
+  },
+  emptyStateButton: {
+    backgroundColor: COLORS.pink,
+    paddingHorizontal: 25,
+    paddingVertical: 15,
+    borderRadius: 25,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    shadowColor: COLORS.pink,
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  emptyStateButtonText: {
+    color: "#FFF",
+    fontWeight: "700",
+    fontSize: 16,
   },
 });

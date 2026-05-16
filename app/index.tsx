@@ -1,5 +1,5 @@
 import { Redirect, useRouter } from "expo-router";
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import {
   FlatList,
   Image,
@@ -10,50 +10,86 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "../context/AuthContext";
+import Animated, { 
+  FadeInUp, 
+  FadeInDown, 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withSpring,
+  withRepeat,
+  withTiming
+} from "react-native-reanimated";
 
 const slides = [
   {
     id: "1",
     title: "Welcome to Emora",
-    description: "A calm space to understand and express your emotions.",
+    description: "A sanctuary for your thoughts. Explore a calm space designed to help you understand and express your true emotions.",
     media: require("../assets/images/onboarding1.png"),
-    tags: ["Safe Space", "Mindfulness", "Growth"],
+    tags: ["Safe Space", "Mindfulness", "Emotional Growth"],
   },
   {
     id: "2",
-    title: "Understand Your Patterns",
+    title: "Clarity in Every Breath",
     description:
-      "Emora gently analyzes emotional shifts to help you find clarity and balance.",
+      "Emora gently observes emotional shifts, offering insights that help you navigate stress, anxiety, and daily burnout.",
     media: require("../assets/images/onboarding2.png"),
     tags: [
       "Stress",
       "Anxiety",
-      "Burnout",
-      "Sleep Disturbance",
-      "Emotional Exhaustion",
-      "Self-Esteem",
       "Depression",
-      "Adjustment Issues",
+      "Burnout",
+      "Sleep Quality",
+      "Self-Esteem",
+      "Exhaustion",
     ],
   },
   {
     id: "3",
-    title: "Support That Feels Personal",
+    title: "Personalized Care",
     description:
-      "Guided reflection and personalized self-care tailored to your needs.",
+      "Enjoy guided reflections and self-care activities specifically tailored to your unique emotional landscape.",
     media: require("../assets/images/onboarding3.png"),
-    tags: ["Breathing", "Meditation", "Self-Care"],
+    tags: ["Meditation", "Self-Care", "Reflection"],
   },
   {
     id: "4",
-    title: "Connect With Support",
+    title: "Professional Connection",
     description:
-      "Find professionals aligned to your specific emotional and mental needs.",
+      "Bridge the gap with mental health professionals who specialize in exactly what you're experiencing.",
     media: require("../assets/images/onboarding4.png"),
     tags: ["Expert Help", "Matching", "Quality Care"],
   },
 ];
+
+const DecorativeBlob = ({ color, size, top, left, right, bottom, delay = 0 }: any) => {
+  const scale = useSharedValue(0.8);
+  useEffect(() => {
+    scale.value = withRepeat(withTiming(1, { duration: 3000 }), -1, true);
+  }, []);
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View 
+      pointerEvents="none"
+      style={[
+        styles.blob, 
+        { 
+          backgroundColor: color, 
+          width: size, 
+          height: size, 
+          borderRadius: size / 2,
+          top, left, right, bottom 
+        },
+        animatedStyle
+      ]} 
+    />
+  );
+};
 
 export default function OnboardingScreen() {
   const { user } = useAuth();
@@ -61,6 +97,22 @@ export default function OnboardingScreen() {
   const { width } = useWindowDimensions();
   const flatListRef = useRef<FlatList>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [listWidth, setListWidth] = useState(width || 400);
+
+  const onLayout = (event: any) => {
+    const { width: layoutWidth } = event.nativeEvent.layout;
+    if (layoutWidth > 0 && layoutWidth !== listWidth) {
+      setListWidth(layoutWidth);
+    }
+  };
+
+  const onScroll = (event: any) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(offsetX / listWidth);
+    if (index !== currentIndex && index >= 0 && index < slides.length) {
+      setCurrentIndex(index);
+    }
+  };
 
   if (user) {
     return <Redirect href="/(tabs)" />;
@@ -81,6 +133,17 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Background Blobs */}
+      <DecorativeBlob color="rgba(230, 230, 250, 0.4)" size={300} top={-100} right={-100} />
+      <DecorativeBlob color="rgba(250, 215, 160, 0.2)" size={250} bottom={100} left={-100} />
+
+      <TouchableOpacity 
+        style={styles.skipButton}
+        onPress={() => router.replace("/login")}
+      >
+        <Text style={styles.skipText}>Skip</Text>
+      </TouchableOpacity>
+
       <FlatList
         ref={flatListRef}
         data={slides}
@@ -88,35 +151,50 @@ export default function OnboardingScreen() {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         bounces={false}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        onLayout={onLayout}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         keyExtractor={(item) => item.id}
-        getItemLayout={(_, index) => ({
-          length: width,
-          offset: width * index,
-          index,
-        })}
-        onMomentumScrollEnd={(event) => {
-          const index = Math.round(event.nativeEvent.contentOffset.x / width);
-          if (index !== currentIndex) {
-            setCurrentIndex(index);
-          }
-        }}
         renderItem={({ item }) => (
-          <View style={[styles.slide, { width }]}>
-            <View style={styles.imageContainer}>
-              <Image source={item.media} style={styles.image} resizeMode="cover" />
-            </View>
+          <View style={[styles.slide, { width: listWidth }]}>
+            <Animated.View 
+              entering={FadeInUp.delay(200).springify()}
+              style={styles.imageContainer}
+            >
+              <Image source={item.media} style={styles.image} resizeMode="contain" />
+              <LinearGradient
+                colors={['transparent', 'rgba(250, 249, 246, 0.8)']}
+                style={styles.imageGradient}
+              />
+            </Animated.View>
 
             <View style={styles.contentContainer}>
-              <Text style={styles.title}>{item.title}</Text>
-              <Text style={styles.description}>{item.description}</Text>
+              <Animated.Text 
+                entering={FadeInDown.delay(400).springify()}
+                style={styles.title}
+              >
+                {item.title}
+              </Animated.Text>
+              
+              <Animated.Text 
+                entering={FadeInDown.delay(500).springify()}
+                style={styles.description}
+              >
+                {item.description}
+              </Animated.Text>
 
-              <View style={styles.tagContainer}>
+              <Animated.View 
+                entering={FadeInDown.delay(600).springify()}
+                style={styles.tagContainer}
+              >
                 {item.tags.map((tag: string, i: number) => (
                   <View key={i} style={styles.tag}>
                     <Text style={styles.tagText}>{tag}</Text>
                   </View>
                 ))}
-              </View>
+              </Animated.View>
             </View>
           </View>
         )}
@@ -135,15 +213,24 @@ export default function OnboardingScreen() {
           ))}
         </View>
 
-        <TouchableOpacity
-          style={styles.button}
-          onPress={handleNext}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.buttonText}>
-            {currentIndex === slides.length - 1 ? "Get Started" : "Next"}
-          </Text>
-        </TouchableOpacity>
+        {currentIndex === slides.length - 1 && (
+          <TouchableOpacity
+            style={styles.buttonTouch}
+            onPress={handleNext}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={['#FAD7A0', '#FFB088']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.button}
+            >
+              <Text style={styles.buttonText}>
+                Start Journey
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -152,112 +239,132 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FAF9F6", // Softer, lighter color
+    backgroundColor: "#FAF9F6",
+  },
+  blob: {
+    position: 'absolute',
+    zIndex: -1,
   },
   slide: {
     flex: 1,
     justifyContent: "flex-start",
-    paddingTop: 40,
+    paddingTop: 60,
   },
   imageContainer: {
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    overflow: "hidden",
-    justifyContent: "center",
-    alignItems: "center",
+    width: 320,
+    height: 320,
     alignSelf: "center",
-    marginBottom: 30,
-    backgroundColor: "#FFF5F7",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
-    shadowRadius: 15,
-    elevation: 3,
+    marginBottom: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   image: {
     width: "100%",
     height: "100%",
   },
+  imageGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+  },
   contentContainer: {
     alignItems: "center",
-    paddingHorizontal: 30,
+    paddingHorizontal: 40,
   },
   title: {
-    fontSize: 22,
-    fontWeight: "800",
+    fontSize: 28,
+    fontWeight: "900",
     color: "#353A40",
     textAlign: "center",
-    marginBottom: 12,
+    marginBottom: 16,
+    letterSpacing: -0.5,
   },
   description: {
-    fontSize: 14,
+    fontSize: 16,
     color: "#595F69",
     textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 30,
+    lineHeight: 24,
+    marginBottom: 35,
   },
   tagContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 10,
-    paddingHorizontal: 10,
+    gap: 12,
   },
   tag: {
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 25,
     borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.05)",
+    borderColor: "rgba(230, 230, 250, 0.8)", // Lavender border
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   tagText: {
-    color: "#595F69",
-    fontSize: 12,
-    fontWeight: "600",
+    color: "#8C8381",
+    fontSize: 13,
+    fontWeight: "700",
   },
   footer: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingHorizontal: 30,
+    paddingBottom: 60,
     alignItems: "center",
   },
   pagination: {
     flexDirection: "row",
     justifyContent: "center",
-    marginBottom: 30,
+    marginBottom: 35,
   },
   dot: {
-    height: 6,
-    width: 6,
-    borderRadius: 3,
+    height: 8,
+    width: 8,
+    borderRadius: 4,
     backgroundColor: "#E2E4E9",
-    marginHorizontal: 4,
+    marginHorizontal: 5,
   },
   activeDot: {
-    width: 20,
-    backgroundColor: "#FFDAB9",
+    width: 28,
+    backgroundColor: "#FAD7A0", // Gold highlight for active
+    borderRadius: 4,
+  },
+  buttonTouch: {
+    width: '100%',
+    borderRadius: 25,
+    shadowColor: "#FAD7A0",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 8,
   },
   button: {
-    backgroundColor: "#FFDAB9", // Pastel Orange button
-    paddingVertical: 16,
-    paddingHorizontal: 60,
-    borderRadius: 30,
-    shadowColor: "#FFDAB9",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 4,
+    paddingVertical: 20,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
   },
   buttonText: {
-    color: "#353A40",
+    color: "#4A362D", // Dark brown for contrast
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  skipButton: {
+    position: 'absolute',
+    top: 50,
+    right: 25,
+    zIndex: 10,
+    padding: 10,
+  },
+  skipText: {
+    color: "#8C8381",
     fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontWeight: "600",
   },
 });

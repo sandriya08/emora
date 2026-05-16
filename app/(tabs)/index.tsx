@@ -17,7 +17,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { ProgressChart, BarChart, LineChart } from 'react-native-chart-kit';
 import { API_URL } from '@/constants/api';
-import { PlusShape, BlobShape, HeartShape, StarburstShape, MoonShape } from '@/components/DashboardShapes';
+import { PlusShape, BlobShape, HeartShape, MoonShape } from '@/components/DashboardShapes';
 import * as Haptics from 'expo-haptics';
 import Animated, { 
   FadeInUp, 
@@ -146,6 +146,19 @@ export default function HomeDashboard() {
     };
   }, [diagnosisHistory]);
 
+  const recentEmotionsSummary = React.useMemo(() => {
+    if (!diagnosisHistory || diagnosisHistory.length === 0) return [];
+    
+    // Count labels from last 7 diagnoses
+    const labels = diagnosisHistory.slice(0, 7).flatMap(d => d.labels || []);
+    const counts: Record<string, number> = {};
+    labels.forEach(l => { counts[l] = (counts[l] || 0) + 1; });
+    
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4); // Show top 4 emotions
+  }, [diagnosisHistory]);
+
   useEffect(() => {
     fetchData();
   }, [user]);
@@ -162,33 +175,69 @@ export default function HomeDashboard() {
         
         {/* PREMIUM HEADER SECTION */}
         <Animated.View entering={FadeInDown.delay(200)} style={styles.newHeaderContainer}>
-          <Text style={styles.topGreeting}>
-            {user?.name?.split(' ')[0] || "Friend"}, how are you?
-          </Text>
+          <View style={{ alignItems: 'center', marginBottom: 25 }}>
+            <Text style={styles.topGreetingMain}>How are you feeling today?</Text>
+            <Text style={styles.topGreetingSub}>Hello {user?.name?.split(' ')[0] || "Friend"}!</Text>
+          </View>
           <View style={[styles.scoreOuterCircle, loading && { borderColor: '#F5F5F5' }]}>
              {loading ? (
                <SkeletonPulse style={{ width: 100, height: 60, borderRadius: 10 }} />
              ) : (
                <>
-                 <View style={styles.scoreContainer}>
-                    <Text style={styles.massiveScore}>{(overallProgress * 10).toFixed(1)}</Text>
-                    <Ionicons name="sparkles" size={24} color="#FAD961" style={styles.scoreSparkle} />
-                 </View>
-                 <Text style={styles.scoreSubtext}>wellbeing score</Text>
+                  <View style={styles.scoreContainer}>
+                    {overallProgress === 0 ? (
+                      <Text style={[styles.massiveScore, { fontSize: 40, color: '#FAD7A0' }]}>START</Text>
+                    ) : (
+                      <ProgressChart
+                        data={{ data: [overallProgress || 0.05] }}
+                        width={200}
+                        height={200}
+                        strokeWidth={12}
+                        radius={85}
+                        hideLegend={true}
+                        chartConfig={{
+                          backgroundColor: "transparent",
+                          backgroundGradientFrom: "#FFFFFF",
+                          backgroundGradientTo: "#FFFFFF",
+                          color: (opacity = 1) => `rgba(250, 215, 160, ${opacity})`,
+                        }}
+                        style={{ position: 'absolute' }}
+                      />
+                    )}
+                    {overallProgress > 0 && (
+                      <Text style={[styles.massiveScore, { color: '#FAD7A0' }]}>{(overallProgress * 10).toFixed(1)}</Text>
+                    )}
+                  </View>
+                 <Text style={[styles.scoreSubtext, overallProgress > 0 && { marginTop: -10, color: '#AAA' }]}>
+                   {overallProgress === 0 ? "Start your journey" : "wellbeing score"}
+                 </Text>
                </>
              )}
           </View>
           
+          {recentEmotionsSummary.length > 0 && (
+            <Animated.View entering={FadeInUp.delay(300)} style={styles.insightPills}>
+               <Text style={styles.insightLabel}>Recent Trends</Text>
+               <View style={styles.pillsRow}>
+                 {recentEmotionsSummary.map(([emotion, count], idx) => (
+                   <View key={emotion} style={[styles.insightPill, { backgroundColor: idx % 2 === 0 ? '#FEF3C7' : '#E0E7FF' }]}>
+                     <Text style={styles.insightPillText}>{emotion}{count > 1 ? ` x${count}` : ''}</Text>
+                   </View>
+                 ))}
+               </View>
+            </Animated.View>
+          )}
+
           <View style={styles.pillContainer}>
             <TouchableOpacity style={styles.emergencyPill} onPress={() => handleHapticPress(router, '/chat')}>
               <Text style={styles.emergencyText}>Support</Text>
               <Ionicons name="heart" size={16} color="#FFF" />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconPill} onPress={() => handleHapticPress(router, '/self-care')}>
-              <Ionicons name="flower-outline" size={20} color="#555" />
+              <Ionicons name="flower-outline" size={20} color="#81E6D9" />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconPill} onPress={() => handleHapticPress(router, '/profile')}>
-              <Ionicons name="settings-outline" size={20} color="#555" />
+              <Ionicons name="settings-outline" size={20} color="#81E6D9" />
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -223,93 +272,90 @@ export default function HomeDashboard() {
             onPress={() => router.push('/chat')}
             style={{ top: 140, left: 10 }} 
           />
-          <StarburstShape 
-            title="result" 
-            subtitle="history" 
-            onPress={() => router.push('/history')}
-            style={{ top: 180, right: 10 }} 
-          />
           <MoonShape 
             title="insights" 
             subtitle="learn more" 
             onPress={() => router.replace('/(tabs)/result')}
-            style={{ top: 260, left: '20%' }} 
+            style={{ top: 180, right: 10 }} // Moved up to fill star's place
           />
         </View>
 
         {/* LATEST ANALYSIS & HISTORY SECTION */}
-        <Animated.View entering={FadeInUp.delay(600)} style={styles.analysisSection}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Result Journey</Text>
-            <TouchableOpacity onPress={() => handleHapticReplace(router, '/(tabs)/chat')}>
-              <Text style={styles.seeAllText}>New Analysis</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {loading ? (
-            <View style={[styles.insightsContainer, { height: 220, justifyContent: 'center', alignItems: 'center' }]}>
-               <SkeletonPulse style={{ width: '100%', height: '100%', borderRadius: 24 }} />
+        {diagnosisHistory.length > 0 && (
+          <Animated.View entering={FadeInUp.delay(600)} style={styles.analysisSection}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Result Journey</Text>
+              <TouchableOpacity onPress={() => handleHapticReplace(router, '/(tabs)/chat')}>
+                <Text style={styles.seeAllText}>New Analysis</Text>
+              </TouchableOpacity>
             </View>
-          ) : chatHistory.length > 0 ? (
-            <View style={styles.insightsContainer}>
-              <Text style={styles.historyLabel}>Wellbeing Journey (Over Time)</Text>
-              {diagnosisTrendData && (
-                <View style={{ marginBottom: 20 }}>
-                  <LineChart
-                    data={diagnosisTrendData}
-                    width={screenWidth - 80}
-                    height={180}
-                    yAxisLabel=""
-                    yAxisSuffix=""
-                    chartConfig={{
-                      backgroundGradientFrom: "#fff",
-                      backgroundGradientTo: "#FAF9F6",
-                      color: (opacity = 1) => `rgba(79, 172, 254, ${opacity})`, 
-                      labelColor: (opacity = 1) => `rgba(74, 74, 74, ${opacity})`,
-                      propsForDots: { r: "4", strokeWidth: "2", stroke: "#4FACFE" },
-                      decimalPlaces: 1,
-                    }}
-                    bezier
-                    style={{ borderRadius: 16 }}
-                  />
-                </View>
-              )}
-              <Text style={styles.historyLabel}>Recent Result History</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.historyScroll}>
-                {chatHistory.map((item, index) => {
-                  const date = new Date(item.createdAt);
-                  const today = new Date();
-                  const diffTime = Math.abs(today.getTime() - date.getTime());
-                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                  
-                  let dateLabel = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-                  if (diffDays === 1) dateLabel = "Today";
-                  else if (diffDays === 2) dateLabel = "Yesterday";
-                  else if (diffDays <= 7) dateLabel = `${diffDays-1}d ago`;
-
-                  return (
-                    <TouchableOpacity key={item._id} style={styles.resultCard} onPress={() => router.push(`/(tabs)/result?id=${item.diagnosisId?._id}`)}>
-                      <View style={styles.resultHeader}>
-                        <Text style={styles.resultNumber}>{dateLabel}</Text>
-                        <Ionicons name="analytics-outline" size={14} color="#4FACFE" />
-                      </View>
-                      <View style={styles.labelPreview}>
-                        <Text style={styles.previewText} numberOfLines={2}>
-                          {item.diagnosisId?.labels ? item.diagnosisId.labels.join(", ") : "Check-in complete"}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ) : (
-            <View style={styles.emptyResults}>
-              <Ionicons name="chatbubbles-outline" size={48} color="#D1D1D1" />
-              <Text style={styles.emptyText}>No chat history yet. Start a conversation to see your journey!</Text>
-            </View>
-          )}
-        </Animated.View>
+            
+            {loading ? (
+              <View style={[styles.insightsContainer, { height: 220, justifyContent: 'center', alignItems: 'center' }]}>
+                 <SkeletonPulse style={{ width: '100%', height: '100%', borderRadius: 24 }} />
+              </View>
+            ) : chatHistory.length > 0 ? (
+              <View style={styles.insightsContainer}>
+                <Text style={styles.historyLabel}>Wellbeing Journey (Over Time)</Text>
+                {diagnosisTrendData && (
+                  <View style={{ marginBottom: 20 }}>
+                    <LineChart
+                      data={diagnosisTrendData}
+                      width={screenWidth - 80}
+                      height={180}
+                      yAxisLabel=""
+                      yAxisSuffix=""
+                      chartConfig={{
+                        backgroundGradientFrom: "#fff",
+                        backgroundGradientTo: "#FAF9F6",
+                        color: (opacity = 1) => `rgba(250, 215, 160, ${opacity})`, 
+                        labelColor: (opacity = 1) => `rgba(74, 74, 74, ${opacity})`,
+                        propsForDots: { r: "4", strokeWidth: "2", stroke: "#FAD7A0" },
+                        decimalPlaces: 1,
+                        verticalLabelRotation: 30,
+                      }}
+                      bezier
+                      style={{ borderRadius: 16 }}
+                    />
+                  </View>
+                )}
+                <Text style={styles.historyLabel}>Recent Result History</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.historyScroll}>
+                  {chatHistory.map((item, index) => {
+                    const date = new Date(item.createdAt);
+                    const today = new Date();
+                    const diffTime = Math.abs(today.getTime() - date.getTime());
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    let dateLabel = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                    if (diffDays === 1) dateLabel = "Today";
+                    else if (diffDays === 2) dateLabel = "Yesterday";
+                    else if (diffDays <= 7) dateLabel = `${diffDays-1}d ago`;
+  
+                    return (
+                      <TouchableOpacity key={item._id} style={styles.resultCard} onPress={() => router.push(`/(tabs)/result?id=${item.diagnosisId?._id}`)}>
+                        <View style={styles.resultHeader}>
+                          <Text style={styles.resultNumber}>{dateLabel}</Text>
+                          <Ionicons name="analytics-outline" size={14} color="#4FACFE" />
+                        </View>
+                        <View style={styles.labelPreview}>
+                          <Text style={styles.previewText} numberOfLines={2}>
+                            {item.diagnosisId?.labels ? item.diagnosisId.labels.join(", ") : "Check-in complete"}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : (
+              <View style={styles.emptyResults}>
+                <Ionicons name="chatbubbles-outline" size={48} color="#D1D1D1" />
+                <Text style={styles.emptyText}>No chat history yet. Start a conversation to see your journey!</Text>
+              </View>
+            )}
+          </Animated.View>
+        )}
 
       </ScrollView>
     </SafeAreaView>
@@ -327,7 +373,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#353A40',
+    color: '#4A4A4A',
     marginBottom: 4,
   },
   actionDesc: {
@@ -338,7 +384,7 @@ const styles = StyleSheet.create({
   showAllText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#4FACFE',
+    color: '#FAD7A0',
   },
   analysisSection: {
     marginTop: 20,
@@ -351,48 +397,54 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   seeAllText: {
-    color: '#4FACFE',
+    color: '#FAD7A0', // Gold
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   insightsContainer: {
     backgroundColor: '#FFF',
     borderRadius: 32,
-    padding: 20,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 8 },
+    padding: 24,
+    elevation: 8,
+    shadowColor: '#BE93E4', // Lavender Shadow
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    borderWidth: 1,
+    borderColor: 'rgba(190, 147, 228, 0.1)',
   },
   historyLabel: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
     color: '#353A40',
     marginTop: 20,
     marginBottom: 12,
   },
   historyScroll: {
-    marginTop: 5,
+    marginTop: 10,
   },
   resultCard: {
-    backgroundColor: '#FAF9F6',
-    width: 130,
-    borderRadius: 20,
-    padding: 15,
-    marginRight: 12,
+    backgroundColor: '#FFF',
+    width: 140,
+    borderRadius: 24,
+    padding: 18,
+    marginRight: 15,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
+    borderColor: 'rgba(190, 147, 228, 0.2)',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
   },
   resultHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   resultNumber: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#353A40',
   },
   labelPreview: {
@@ -400,8 +452,8 @@ const styles = StyleSheet.create({
   },
   previewText: {
     fontSize: 12,
-    color: '#8C8381',
-    fontWeight: '600',
+    color: '#595F69',
+    fontWeight: '700',
   },
   emptyResults: {
     backgroundColor: '#FFFFFF',
@@ -411,7 +463,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderStyle: 'dashed',
     borderWidth: 1,
-    borderColor: '#D1D1D1',
+    borderColor: '#BE93E4',
   },
   emptyText: {
     fontSize: 14,
@@ -421,8 +473,21 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 20,
   },
-  newHeaderContainer: { alignItems: 'center', marginTop: 20, marginBottom: 30 },
-  topGreeting: { fontSize: 18, color: '#353A40', fontWeight: '700', marginBottom: 20 },
+  newHeaderContainer: { alignItems: 'center', marginTop: 25, marginBottom: 20 },
+  topGreetingMain: { 
+    fontSize: 28, 
+    color: '#4A362D', 
+    fontWeight: '900', 
+    textAlign: 'center',
+    marginBottom: 4 
+  },
+  topGreetingSub: { 
+    fontSize: 18, 
+    color: '#4A362D', 
+    fontWeight: '700', 
+    textAlign: 'center',
+    opacity: 0.8
+  },
   scoreOuterCircle: {
       width: 200,
       height: 200,
@@ -430,24 +495,31 @@ const styles = StyleSheet.create({
       backgroundColor: '#FFF',
       justifyContent: 'center',
       alignItems: 'center',
-      borderWidth: 10,
-      borderColor: '#F0F7FF',
-      shadowColor: '#4FACFE',
-      shadowOffset: { width: 0, height: 10 },
+      borderWidth: 8,
+      borderColor: '#2D3436', // Dark hint border (the "hint of darkness")
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.1,
-      shadowRadius: 20,
+      shadowRadius: 15,
       elevation: 5,
       marginBottom: 25,
       overflow: 'hidden',
   },
   scoreContainer: { flexDirection: 'row', alignItems: 'flex-start' },
-  massiveScore: { fontSize: 72, fontWeight: '900', color: '#353A40', lineHeight: 80 },
-  scoreSparkle: { marginTop: 10, marginLeft: -2 },
-  scoreSubtext: { fontSize: 13, color: '#353A40', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6 },
+  massiveScore: { fontSize: 72, fontWeight: '900', color: '#FAD7A0', lineHeight: 80 },
+  scoreSubtext: { fontSize: 13, color: '#4A4A4A', fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6 },
   pillContainer: { flexDirection: 'row', alignItems: 'center', gap: 15 },
-  emergencyPill: { backgroundColor: '#FFDAB9', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#FFDAB9', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-  emergencyText: { color: '#353A40', fontWeight: '800', fontSize: 14 },
-  iconPill: { backgroundColor: '#FFF', width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5 },
+  emergencyPill: { backgroundColor: '#FAD7A0', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#FAD7A0', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  emergencyText: { color: '#4A362D', fontWeight: '800', fontSize: 14 },
+  iconPill: { backgroundColor: '#FFF', width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', elevation: 2, shadowColor: '#81E6D9', shadowOpacity: 0.1, shadowRadius: 5 },
+  
+  // Emotional Insights Styles
+  insightPills: { alignItems: 'center', marginBottom: 25 },
+  insightLabel: { fontSize: 11, fontWeight: '800', color: '#8C8381', textTransform: 'uppercase', marginBottom: 8, opacity: 0.6 },
+  pillsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
+  insightPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  insightPillText: { fontSize: 12, fontWeight: '800', color: '#4A4A4A' },
+
   highlightsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 10, marginBottom: 20 },
   shapesContainer: { height: 420, width: '100%', position: 'relative' },
 });

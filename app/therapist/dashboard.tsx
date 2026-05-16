@@ -10,7 +10,10 @@ import {
   View,
   ActivityIndicator,
   ScrollView,
-  Dimensions
+  Dimensions,
+  Modal,
+  TextInput,
+  Alert
 } from "react-native";
 import { useAuth } from "../../context/AuthContext";
 import { API_URL } from "../../constants/api";
@@ -22,13 +25,16 @@ export default function TherapistDashboard() {
   const { logout, user } = useAuth();
   const [patients, setPatients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [slotDate, setSlotDate] = useState("");
+  const [slotTime, setSlotTime] = useState("");
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     if (user?.therapistProfile) {
       fetchPatients();
     }
   }, [user]);
-
   const fetchPatients = async () => {
     try {
       const response = await fetch(`${API_URL}/api/therapist/patients?therapistId=${user?.therapistProfile}`);
@@ -42,9 +48,43 @@ export default function TherapistDashboard() {
       setLoading(false);
     }
   };
+  
+  const addAvailability = async () => {
+    if (!slotDate || !slotTime) {
+      Alert.alert("Error", "Please enter both date and time.");
+      return;
+    }
+    
+    setUpdating(true);
+    try {
+      const response = await fetch(`${API_URL}/api/therapist/availability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          therapistId: user?.therapistProfile, 
+          slot: `${slotDate} ${slotTime}`
+        }),
+      });
+      
+      if (response.ok) {
+        Alert.alert("Success", "New slot added successfully!");
+        setSlotDate("");
+        setSlotTime("");
+        setIsModalVisible(false);
+      } else {
+        const error = await response.json();
+        Alert.alert("Error", error.error || "Failed to add slot.");
+      }
+    } catch (error) {
+       console.error(error);
+       Alert.alert("Error", "Server error. Please try again.");
+    } finally {
+       setUpdating(false);
+    }
+  };
 
   const TimelineItem = ({ item, index }: { item: any, index: number }) => {
-    const cardColors = ['#FFB347', '#FF7597', '#F59E0B'];
+    const cardColors = ['#FFB347', '#FAD7A0', '#F59E0B'];
     const bgColor = cardColors[index % cardColors.length];
     
     return (
@@ -92,10 +132,10 @@ export default function TherapistDashboard() {
       <View style={styles.header}>
         <View>
           <Text style={styles.welcome}>Hello,</Text>
-          <Text style={styles.name}>Dr. {user?.name}</Text>
+          <Text style={styles.name}>{user?.name}</Text>
         </View>
         <TouchableOpacity onPress={() => logout()} style={styles.logoutBtn}>
-          <Ionicons name="log-out-outline" size={24} color="#555" />
+          <Ionicons name="log-out-outline" size={24} color="#FFF" />
         </TouchableOpacity>
       </View>
 
@@ -121,7 +161,7 @@ export default function TherapistDashboard() {
         <Text style={styles.sectionTitle}>Agenda & Bookings</Text>
         
         {loading ? (
-          <ActivityIndicator size="large" color="#FF7597" style={{ marginTop: 40 }} />
+          <ActivityIndicator size="large" color="#FAD7A0" style={{ marginTop: 40 }} />
         ) : (
           <View style={styles.timelineContainer}>
             {patients.length > 0 ? (
@@ -139,9 +179,59 @@ export default function TherapistDashboard() {
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab}>
+      <TouchableOpacity 
+        style={styles.fab}
+        onPress={() => setIsModalVisible(true)}
+      >
         <Ionicons name="add" size={30} color="#FFF" />
       </TouchableOpacity>
+
+      {/* Add Slot Modal */}
+      <Modal
+        visible={isModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Availability</Text>
+              <TouchableOpacity onPress={() => setIsModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#555" />
+              </TouchableOpacity>
+            </View>
+            
+            <Text style={styles.inputLabel}>Date (e.g. 27 Mar)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter date"
+              value={slotDate}
+              onChangeText={setSlotDate}
+            />
+            
+            <Text style={styles.inputLabel}>Time (e.g. 10:00 AM)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter time"
+              value={slotTime}
+              onChangeText={setSlotTime}
+            />
+            
+            <TouchableOpacity 
+               style={[styles.submitBtn, updating && { opacity: 0.7 }]}
+               onPress={addAvailability}
+               disabled={updating}
+            >
+              {updating ? (
+                <ActivityIndicator color="#4A362D" />
+              ) : (
+                <Text style={styles.submitBtnText}>Add Slot</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -157,7 +247,7 @@ const styles = StyleSheet.create({
   },
   welcome: { fontSize: 16, color: "#8C8381", fontWeight: "600" },
   name: { fontSize: 24, fontWeight: "900", color: "#353A40" },
-  logoutBtn: { backgroundColor: "#FFF", padding: 10, borderRadius: 15, elevation: 2 },
+  logoutBtn: { backgroundColor: "#1A1A1A", padding: 10, borderRadius: 15, elevation: 4, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10 },
   statsContainer: { flexDirection: "row", paddingHorizontal: 24, gap: 15, marginBottom: 20 },
   statBox: {
     flex: 1,
@@ -272,7 +362,7 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: 'rgba(255, 117, 151, 0.04)',
+    backgroundColor: 'rgba(250, 215, 160, 0.1)',
     zIndex: -1,
   },
   fab: {
@@ -282,13 +372,68 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#FFB347',
+    backgroundColor: '#2D3436', // Darker FAB
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 8,
-    shadowColor: '#FFB347',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 15,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FAF9F6',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 24,
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#353A40',
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#8C8381',
+    marginBottom: 8,
+    marginTop: 15,
+  },
+  input: {
+    backgroundColor: '#FFF',
+    borderRadius: 15,
+    padding: 15,
+    fontSize: 16,
+    color: '#353A40',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  submitBtn: {
+    backgroundColor: '#FAD7A0',
+    borderRadius: 15,
+    padding: 18,
+    alignItems: 'center',
+    marginTop: 30,
+    elevation: 4,
+    shadowColor: '#FAD7A0',
     shadowOpacity: 0.3,
     shadowRadius: 10,
+  },
+  submitBtnText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#4A362D',
   },
   emptyContainer: { alignItems: 'center', marginTop: 60 },
   emptyText: { textAlign: 'center', color: '#8C8381', marginTop: 15, fontSize: 15 }

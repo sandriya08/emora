@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -77,11 +78,12 @@ export default function SelfCareScreen() {
 
   // MEMOIZE EMOTIONS TO PREVENT RE-RENDERS
   const emotions = useMemo(() => {
-    return diagnoses
-      ? JSON.parse(diagnoses as string)
-      : diagnosisResult
-        ? Object.keys(diagnosisResult)
-        : ["Stress", "Anxiety", "Low Self-Esteem"];
+    if (!diagnoses) return diagnosisResult ? Object.keys(diagnosisResult) : [];
+    try {
+      return typeof diagnoses === 'string' ? JSON.parse(diagnoses) : diagnoses;
+    } catch {
+      return diagnosisResult ? Object.keys(diagnosisResult) : [];
+    }
   }, [diagnoses, diagnosisResult]);
 
   // Mood label → numeric score (higher = better mood)
@@ -118,13 +120,35 @@ export default function SelfCareScreen() {
           latestAfterMoods[weekName] = afterMoodLabel;
         }
 
-        const score = moodScoreMap[moodLabel] || 0;
-        return (score / 5) * 100;
+        // CALCULATE COMPLETION RATE FOR THIS WEEK
+        const totalPossible = latestSession.totalActivities || 1;
+        const completedCount = (latestSession.completedActivities || []).length;
+        return Math.round((completedCount / totalPossible) * 100);
       });
 
       setWeeklyMoods(latestMoods);
       setWeeklyAfterMoods(latestAfterMoods);
       setChartData(weeklyRates);
+
+      // HYDRATE WEEKLY PROGRESS FROM HISTORY
+      const hydratedProgress: Record<string, number[]> = { ...weeklyProgress };
+      weeks.forEach(weekName => {
+        const weekSessions = data.filter((s: any) => s.week === weekName);
+        if (weekSessions.length > 0) {
+          const latestSession = weekSessions[0];
+          const completedTitles = latestSession.completedActivities || [];
+          const currentActivities = weeklyActivities[weekName] || [];
+          
+          if (currentActivities.length > 0) {
+            const indices = completedTitles.map((title: string) => 
+               currentActivities.findIndex(a => a.title === title)
+            ).filter((idx: number) => idx !== -1);
+            
+            hydratedProgress[weekName] = Array.from(new Set([...hydratedProgress[weekName], ...indices]));
+          }
+        }
+      });
+      // setWeeklyProgress(hydratedProgress); // REMOVE AUTO-HYDRATION FROM ALL HISTORY TO ENSURE NEW SESSIONS ARE FRESH
     } catch (err) {
       console.error("Error fetching history:", err);
     }
@@ -169,6 +193,33 @@ export default function SelfCareScreen() {
     fetchActivities();
   }, [emotions]);
 
+  // LOAD LOCAL CACHE ON MOUNT
+  useEffect(() => {
+    const loadCache = async () => {
+      if (!user?.id) return;
+      try {
+        const cached = await AsyncStorage.getItem(`sc_progress_${user.id}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setWeeklyProgress(prev => ({ ...prev, ...parsed }));
+        }
+      } catch (e) {
+        console.error("Error loading sc cache:", e);
+      }
+    };
+    loadCache();
+  }, [user]);
+
+  // SYNC PROGRESS FROM HISTORY ONLY IF WE HAVE NO LOCAL PROGRESS (Optional: disabled for extreme "New Session" freshness)
+  useEffect(() => {
+    /* 
+    if (sessionHistory.length > 0 && Object.values(weeklyActivities).some(a => a.length > 0)) {
+       // Only hydrate if the current week has NO progress yet and we want to resume
+       // For now, mirroring user's "New Session" request by making this more conservative
+    }
+    */
+  }, [sessionHistory, weeklyActivities]);
+
   // FLOATING ANIMATION
   useEffect(() => {
     Animated.loop(
@@ -210,9 +261,17 @@ export default function SelfCareScreen() {
       ? currentWeekProgress.filter(i => i !== index)
       : [...currentWeekProgress, index];
 
-    setWeeklyProgress({
-      ...weeklyProgress,
-      [week]: updated,
+    setWeeklyProgress(prev => {
+      const updatedProgress = {
+        ...prev,
+        [week]: updated,
+      };
+      // PERSIST PARTIAL PROGRESS LOCALLY
+      if (user?.id) {
+        AsyncStorage.setItem(`sc_progress_${user.id}`, JSON.stringify(updatedProgress))
+          .catch(e => console.error("Error saving sc cache:", e));
+      }
+      return updatedProgress;
     });
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -243,6 +302,10 @@ export default function SelfCareScreen() {
     });
 
     await fetchHistory(); // Refresh chart data
+    // CLEAR CACHE ON COMPLETE
+    if (user?.id) {
+       await AsyncStorage.removeItem(`sc_progress_${user.id}`);
+    }
     setLoading(false);
     router.replace("/therapist");
   };
@@ -255,14 +318,14 @@ export default function SelfCareScreen() {
 
   // Live Chart Data: Merge historical data with current moods from ALL weeks
   const displayChartData = useMemo(() => {
-    const updated = [...chartData];
+    const updated = [0, 0, 0, 0];
     weeks.forEach((weekName, idx) => {
-      const mood = weeklyMoods[weekName];
-      if (mood !== null) {
-        const currentMoodLabel = moodData[mood]?.label || "Not set";
-        const currentScore = moodScoreMap[currentMoodLabel] || 0;
-        const currentRate = (currentScore / 5) * 100;
-        updated[idx] = Math.max(updated[idx], currentRate);
+      const currentWeekActivities = weeklyActivities[weekName] || [];
+      const currentWeekProgress = weeklyProgress[weekName] || [];
+      
+      if (currentWeekActivities.length > 0) {
+        const currentRate = Math.round((currentWeekProgress.length / currentWeekActivities.length) * 100);
+        updated[idx] = currentRate;
       }
     });
     return updated;
@@ -284,11 +347,11 @@ export default function SelfCareScreen() {
       const weekActivities = weeklyActivities[weekName] || [];
       const weekProgress = weeklyProgress[weekName] || [];
       
-      if (afterMood) {
-        const moodVal = (afterMoodScoreMap[afterMood] || 0) / 5;
-        const completionRate = weekActivities.length > 0 ? weekProgress.length / weekActivities.length : 0;
+      // ONLY INCLUDE IN MONTHLY IF WE HAVE ACTIVE PROGRESS OR A RECORDED AFTER-MOOD FOR THIS SPECIFIC PLAN
+      if (weekProgress.length > 0 && afterMood) {
+        const moodVal = (afterMoodScoreMap[afterMood as string] || 0) / 5;
+        const completionRate = weekProgress.length / weekActivities.length;
         
-        // Month score is also 50/50 mood and completion
         totalScore += (moodVal * 0.5) + (completionRate * 0.5);
         count++;
       }
@@ -301,8 +364,8 @@ export default function SelfCareScreen() {
   const CircularProgress = () => (
     <View style={styles.circularContainer}>
       <LinearGradient
-        colors={["#FFFFFF", "rgba(255, 117, 151, 0.05)"]}
-        style={styles.circularBg}
+        colors={["#FFFFFF", "rgba(0, 0, 0, 0.02)"]}
+        style={[styles.circularBg, { borderWidth: 2, borderColor: '#2D3436' }]}
       >
         <ProgressChart
           data={{
@@ -315,16 +378,22 @@ export default function SelfCareScreen() {
           radius={70}
           chartConfig={{
             backgroundColor: "transparent",
-            backgroundGradientFrom: "rgba(255,255,255,0)",
-            backgroundGradientTo: "rgba(255,255,255,0)",
-            color: (opacity = 1) => `rgba(255, 117, 151, ${opacity})`,
-            labelColor: (opacity = 1) => `rgba(74, 63, 61, ${opacity})`,
+            backgroundGradientFrom: "#FFFFFF",
+            backgroundGradientTo: "#FFFFFF",
+            backgroundGradientFromOpacity: 0,
+            backgroundGradientToOpacity: 0,
+            color: (opacity = 1) => `rgba(165, 105, 189, ${opacity})`, // Darker Lavender
+            labelColor: () => "#000000",
+            propsForLabels: {
+                fontSize: 14,
+                fontWeight: '900',
+            },
           }}
           hideLegend={true}
         />
         <View style={styles.circularOverlay}>
-          <Text style={styles.circularScore}>{(monthlyAverage * 10).toFixed(1)}</Text>
-          <Text style={styles.circularLabel}>Monthly Score</Text>
+          <Text style={[styles.circularScore, { color: '#2D3436' }]}>{(monthlyAverage * 10).toFixed(1)}</Text>
+          <Text style={[styles.circularLabel, { color: '#888' }]}>Monthly Score</Text>
         </View>
       </LinearGradient>
     </View>
@@ -350,9 +419,11 @@ export default function SelfCareScreen() {
 
         {/* NEW HEADER */}
         <View style={styles.headerNew}>
-          <Text style={styles.dateText}>Mar 20, 2026</Text>
-          <Text style={[styles.greetingText, { fontSize: screenWidth < 380 ? 24 : 28 }]}>Hello {user?.name?.split(' ')[0] || "Friend"}! How are</Text>
-          <Text style={[styles.greetingText, { fontSize: screenWidth < 380 ? 24 : 28 }]}>you feeling today?</Text>
+          <Text style={styles.dateText}>
+            {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </Text>
+          <Text style={styles.greetingTextMain}>How are you feeling today?</Text>
+          <Text style={styles.greetingTextSub}>Hello {user?.name?.split(' ')[0] || "Friend"}!</Text>
 
           {/* DETECTED EMOTIONS */}
           {emotions && emotions.length > 0 && (
@@ -418,67 +489,93 @@ export default function SelfCareScreen() {
             })}
           </View>
 
-          {/* GRID ACTIVITIES */}
-        <Text style={styles.sectionHeader}>{weeks[selectedWeek]} Self-Care Plan</Text>
-        <View style={styles.grid}>
-          {activities.map((item, index) => {
-            const isDone = weeklyProgress[weeks[selectedWeek]].includes(index);
-            const cardGradients = [
-              ["#FFFFFF", "#F1F8E9"], // Subtle Mint hint
-              ["#FFFFFF", "#E3F2FD"], // Subtle Blue hint
-              ["#FFFFFF", "#F3E5F5"], // Subtle Purple hint
-              ["#FFFFFF", "#FFF3E0"], // Subtle Peach hint
-              ["#FFFFFF", "#FCE4EC"], // Subtle Pink hint
-              ["#FFFFFF", "#E0F7FA"], // Subtle Cyan hint
-            ];
-            const currentGradient = cardGradients[index % cardGradients.length];
-
-            return (
-              <Animated.View
-                key={index}
-                style={[styles.gridCardWrapper, { transform: [{ scale: isDone ? 1 : scaleAnim }] }]}
-              >
-                <TouchableOpacity
-                  onPressIn={!isDone ? handlePressIn : undefined}
-                  onPressOut={!isDone ? () => handlePressOut(index) : () => toggleActivity(index)}
-                  activeOpacity={0.9}
-                >
-                  <LinearGradient
-                    colors={isDone ? ["#F5F5F5", "#E0E0E0"] : (currentGradient as any)}
-                    style={[
-                      styles.gridCard,
-                      isDone && { opacity: 0.7, transform: [{ scale: 0.98 }] }
-                    ]}
-                  >
-                    <Text style={[styles.gridTitle, isDone && { color: "#999" }]}>{item.title}</Text>
-                    <View style={styles.gridFooter}>
-                      <Ionicons
-                        name={isDone ? "checkmark-circle" : "checkmark-circle-outline"}
-                        size={22}
-                        color={isDone ? "#FF7597" : "#FF7597"}
-                      />
-                    </View>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </Animated.View>
-            );
-          })}
-        </View>
-
-        <View style={styles.progressCard}>
-          <View style={styles.progressContent}>
-            <Text style={styles.progressTitle}>Current Momentum</Text>
-            <View style={styles.barRow}>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+        {emotions.length === 0 && sessionHistory.length === 0 ? (
+          <View style={styles.emptyStateContainer}>
+            <LinearGradient
+              colors={["#FFF0F3", "#FFFFFF"]}
+              style={styles.emptyStateCard}
+            >
+              <View style={styles.emptyStateIconCircle}>
+                <Ionicons name="chatbubbles-outline" size={40} color="#353A40" />
               </View>
-              <Text style={styles.percentageLabel}>{Math.round(progress * 100)}%</Text>
-            </View>
-            <Text style={styles.progressSub}>
-              {progressText}
-            </Text>
+              <Text style={styles.emptyStateTitle}>Your Journey Starts Here</Text>
+              <Text style={styles.emptyStateDescription}>
+                It looks like you haven't completed an emotional assessment yet. Start your first chat to receive a personalized self-care plan.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyStateButton}
+                onPress={() => router.replace("/(tabs)/chat")}
+              >
+                <Text style={styles.emptyStateButtonText}>Start Assessment</Text>
+                <Ionicons name="arrow-forward" size={18} color="#FFF" />
+              </TouchableOpacity>
+            </LinearGradient>
           </View>
-        </View>
+        ) : (
+          <>
+            {/* GRID ACTIVITIES */}
+            <Text style={styles.sectionHeader}>{weeks[selectedWeek]} Self-Care Plan</Text>
+            <View style={styles.grid}>
+              {activities.map((item, index) => {
+                const isDone = weeklyProgress[weeks[selectedWeek]].includes(index);
+                const cardGradients = [
+                  ["#FFFFFF", "#F1F8E9"], // Subtle Mint hint
+                  ["#FFFFFF", "#E3F2FD"], // Subtle Blue hint
+                  ["#FFFFFF", "#F3E5F5"], // Subtle Purple hint
+                  ["#FFFFFF", "#FFF3E0"], // Subtle Peach hint
+                  ["#FFFFFF", "#FCE4EC"], // Subtle Pink hint
+                  ["#FFFFFF", "#E0F7FA"], // Subtle Cyan hint
+                ];
+                const currentGradient = cardGradients[index % cardGradients.length];
+
+                return (
+                  <Animated.View
+                    key={index}
+                    style={[styles.gridCardWrapper, { transform: [{ scale: isDone ? 1 : scaleAnim }] }]}
+                  >
+                    <TouchableOpacity
+                      onPressIn={!isDone ? handlePressIn : undefined}
+                      onPressOut={!isDone ? () => handlePressOut(index) : () => toggleActivity(index)}
+                      activeOpacity={0.9}
+                    >
+                      <LinearGradient
+                        colors={isDone ? ["#F5F5F5", "#E0E0E0"] : (currentGradient as any)}
+                        style={[
+                          styles.gridCard,
+                          isDone && { opacity: 0.7, transform: [{ scale: 0.98 }] }
+                        ]}
+                      >
+                        <Text style={[styles.gridTitle, isDone && { color: "#999" }]}>{item.title}</Text>
+                        <View style={styles.gridFooter}>
+                          <Ionicons
+                            name={isDone ? "checkmark-circle" : "checkmark-circle-outline"}
+                            size={22}
+                            color={isDone ? "#FF7597" : "#FF7597"}
+                          />
+                        </View>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </Animated.View>
+                );
+              })}
+            </View>
+
+            <View style={styles.progressCard}>
+              <View style={styles.progressContent}>
+                <Text style={styles.progressTitle}>Current Momentum</Text>
+                <View style={styles.barRow}>
+                  <View style={styles.progressBar}>
+                    <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: "#D2B4DE" }]} />
+                  </View>
+                  <Text style={styles.percentageLabel}>{Math.round(progress * 100)}%</Text>
+                </View>
+                <Text style={styles.progressSub}>
+                  {progressText}
+                </Text>
+              </View>
+            </View>
+          </>
+        )}
 
 
         {/* PROGRESS CHARTS - REORDERED */}
@@ -493,7 +590,17 @@ export default function SelfCareScreen() {
             <BarChart
               data={{
                 labels: ["W1", "W2", "W3", "W4"],
-                datasets: [{ data: displayChartData }]
+                datasets: [
+                    { 
+                      data: displayChartData,
+                      color: (opacity = 1) => `rgba(255, 117, 151, ${opacity})`, 
+                    },
+                    { 
+                      data: [100, 100, 100, 100], // Full dataset to force 100% scale
+                      withDots: false,
+                      color: () => `rgba(0, 0, 0, 0)`, // Transparent
+                    }
+                ]
               }}
               width={contentWidth - 40}
               height={180}
@@ -504,20 +611,30 @@ export default function SelfCareScreen() {
                 backgroundGradientFrom: "#fff",
                 backgroundGradientTo: "#fff",
                 decimalPlaces: 0,
-                color: (opacity = 1) => `rgba(255, 117, 151, ${opacity})`,
-                labelColor: (opacity = 1) => `rgba(74, 63, 61, ${opacity})`,
-                style: { borderRadius: 16 },
-                fillShadowGradient: "#FF7597",
+                color: (opacity = 1) => `rgba(255, 117, 151, ${opacity})`, 
+                labelColor: () => "#4A362D",
+                fillShadowGradient: "#FFB088", // Warm Peach contrast
                 fillShadowGradientOpacity: 1,
                 barPercentage: 0.7,
-                useShadowColorFromDataset: false,
+                propsForLabels: {
+                    fontSize: 14,
+                    fontWeight: '900',
+                },
+                propsForBackgroundLines: {
+                    strokeDasharray: "", 
+                    stroke: "#F0F0F0",
+                    strokeWidth: 1,
+                },
               }}
               style={{
-                marginVertical: 8,
-                borderRadius: 16
+                marginVertical: 12,
+                borderRadius: 16,
+                paddingRight: 45,
               }}
               showValuesOnTopOfBars={true}
               fromZero={true}
+              withInnerLines={true}
+              segments={4} // Set fixed segments to avoid repeating 1%
             />
           </View>
 
@@ -567,31 +684,39 @@ export default function SelfCareScreen() {
 
           <TouchableOpacity
             style={[
-              styles.finishButton,
+              styles.primaryAction,
               progress === 0 && { opacity: 0.5 }
             ]}
             onPress={handleComplete}
-            activeOpacity={0.85}
+            activeOpacity={0.9}
             disabled={loading}
           >
             <LinearGradient
-              colors={["#48BB78", "#38A169"]}
+              colors={['#FAD7A0', '#FFB088']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
-              style={styles.finishButtonGradient}
+              style={styles.primaryGradient}
             >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <View style={[styles.buttonContent, { justifyContent: 'space-between', width: '100%', paddingHorizontal: 15 }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="people-circle" size={26} color="#fff" style={{ marginRight: 12 }} />
-                    <Text style={styles.finishButtonText}>Converse with a Guide</Text>
-                  </View>
-                  <Ionicons name="arrow-forward" size={22} color="#fff" />
-                </View>
-              )}
+              <View style={styles.iconCircle}>
+                <Ionicons 
+                    name={loading ? "refresh" : "checkmark-done"} 
+                    size={24} 
+                    color="#4A362D" 
+                />
+              </View>
+              <Text style={styles.primaryActionText}>
+                  {loading ? "Saving Progress..." : "Finish Rituals & Save"}
+              </Text>
             </LinearGradient>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={{ marginTop: 22, alignItems: 'center', paddingVertical: 10 }}
+            onPress={() => router.push("/chat")}
+          >
+            <Text style={{ color: "#4A362D", fontSize: 13, fontWeight: "700", opacity: 0.5 }}>
+                Need more help? Converse with Guide
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -631,12 +756,20 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 8,
   },
-  greetingText: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#353A40",
-    lineHeight: 34,
+  greetingTextMain: {
+    fontSize: 34,
+    fontWeight: "900",
+    color: "#4A362D",
+    lineHeight: 40,
     letterSpacing: -0.5,
+  },
+  greetingTextSub: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#4A362D",
+    lineHeight: 28,
+    opacity: 0.8,
+    marginTop: 4,
   },
   moodSelectorRowNew: {
     flexDirection: "row",
@@ -662,7 +795,7 @@ const styles = StyleSheet.create({
   moodPillText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#353A40",
+    color: "#4A362D",
   },
   moodIconFloating: {
     position: "absolute",
@@ -670,6 +803,8 @@ const styles = StyleSheet.create({
     right: -2,
     width: 28,
     height: 28,
+    borderRadius: 14,
+    backgroundColor: "#fff",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
@@ -709,30 +844,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(72, 187, 120, 0.06)",
+    backgroundColor: "rgba(129, 230, 217, 0.1)",
     paddingHorizontal: 6,
     paddingVertical: 8,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(72, 187, 120, 0.15)",
+    borderColor: "rgba(129, 230, 217, 0.3)",
   },
   emotionDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#48BB78",
+    backgroundColor: "#81E6D9",
     marginRight: 6,
   },
   emotionText: {
     fontSize: 11,
-    color: "#353A40",
+    color: "#4A362D",
     fontWeight: "600",
     flexShrink: 1,
   },
   sectionHeader: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#353A40",
+    color: "#4A362D",
     marginBottom: 15,
     marginTop: 10,
   },
@@ -747,7 +882,7 @@ const styles = StyleSheet.create({
   checkInTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#353A40",
+    color: "#4A362D",
     marginBottom: 12,
   },
   moodSelectorRow: {
@@ -765,6 +900,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 6,
     position: "relative",
+    shadowColor: "#FF7597",
   },
   selectedMoodCircle: {
     borderWidth: 2,
@@ -834,7 +970,7 @@ const styles = StyleSheet.create({
   gridTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#353A40",
+    color: "#4A362D",
     lineHeight: 18,
   },
   gridFooter: {
@@ -862,7 +998,7 @@ const styles = StyleSheet.create({
   progressTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#353A40",
+    color: "#4A362D",
     marginBottom: 10,
   },
   barRow: {
@@ -882,15 +1018,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#48BB78",
     borderRadius: 5,
   },
+  progressSub: {
+    fontSize: 12,
+    color: "#8C8381",
+    fontWeight: "600",
+    marginTop: 2,
+  },
   percentageLabel: {
     fontSize: 13,
     color: "#595F69",
     fontWeight: "700",
     width: 35,
-  },
-  progressSub: {
-    fontSize: 12,
-    color: "#595F69",
   },
   buttonContent: {
     flexDirection: "row",
@@ -947,6 +1085,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 5,
+    overflow: 'hidden', // PREVENT WHITE BOX OVERFLOW
   },
   circularOverlay: {
     position: "absolute",
@@ -974,7 +1113,7 @@ const styles = StyleSheet.create({
   tabTextActive: {
     fontSize: 13,
     fontWeight: "800",
-    color: "#353A40",
+    color: "#FF7597",
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
@@ -1053,5 +1192,98 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 18,
     letterSpacing: -0.2,
+  },
+  // Empty State Styles
+  emptyStateContainer: {
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  emptyStateCard: {
+    borderRadius: 32,
+    padding: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#FFE0E6",
+    shadowColor: "#FF7597",
+    shadowOpacity: 0.1,
+    shadowRadius: 15,
+    elevation: 3,
+  },
+  emptyStateIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#FFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  emptyStateTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#353A40",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  emptyStateDescription: {
+    fontSize: 14,
+    color: "#8C8381",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 25,
+    paddingHorizontal: 10,
+  },
+  emptyStateButton: {
+    backgroundColor: "#FF7597",
+    paddingHorizontal: 25,
+    paddingVertical: 15,
+    borderRadius: 25,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    shadowColor: "#FF7597",
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  emptyStateButtonText: {
+    color: "#FFF",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  primaryAction: {
+    borderRadius: 22,
+    overflow: "hidden",
+    shadowColor: "#FF7597",
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  primaryGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  primaryActionText: {
+    color: "#4A362D",
+    fontSize: 18,
+    fontWeight: "800",
+    marginLeft: 12,
   },
 });

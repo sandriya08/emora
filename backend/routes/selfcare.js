@@ -4,6 +4,7 @@ const { getSelfCareSuggestions } = require("../services/selfCareService");
 const SelfCareSession = require("../models/SelfCareSession");
 const Diagnosis = require("../models/Diagnosis");
 const ChatSession = require("../models/ChatSession");
+const AssessmentQuestion = require("../models/AssessmentQuestion");
 
 // GET diagnosis history
 router.get("/diagnosis", async (req, res) => {
@@ -21,8 +22,12 @@ router.get("/diagnosis", async (req, res) => {
 // GET specific diagnosis by ID
 router.get("/diagnosis/:id", async (req, res) => {
   try {
-    const diagnosis = await Diagnosis.findById(req.params.id);
-    if (!diagnosis) return res.status(404).json({ message: "Diagnosis not found" });
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ message: "userId is required for security verification" });
+
+    const diagnosis = await Diagnosis.findOne({ _id: req.params.id, userId });
+    if (!diagnosis) return res.status(404).json({ message: "Diagnosis not found or access denied" });
+    
     res.json(diagnosis);
   } catch (error) {
     console.error("Error fetching diagnosis by ID:", error);
@@ -120,6 +125,17 @@ router.post("/session", async (req, res) => {
   } catch (error) {
     console.error("Error saving self-care session:", error);
     res.status(500).json({ message: "Error saving session" });
+  }
+});
+
+// GET assessment questions
+router.get("/questions", async (req, res) => {
+  try {
+    const questions = await AssessmentQuestion.find({ isActive: true }).sort({ orderIndex: 1 });
+    res.json(questions);
+  } catch (error) {
+    console.error("Error fetching assessment questions:", error);
+    res.status(500).json({ message: "Error fetching questions" });
   }
 });
 

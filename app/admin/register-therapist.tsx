@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -101,13 +102,18 @@ export default function RegisterTherapistScreen() {
   };
 
   const handleRegister = async () => {
-    const { name, email, password } = form;
+    let { name, email, password } = form;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!name || !email || !password) {
+    
+    // Sanitize: Remove "Dr." or "Dr " prefix from name and email
+    const cleanName = name.replace(/^(dr\.?\s*)/i, "").trim();
+    const cleanEmail = email.replace(/^(dr\.?\s*)/i, "").trim();
+
+    if (!cleanName || !cleanEmail || !password) {
       Alert.alert("Error", "Please fill required fields (Name, Email, Password)");
       return;
     }
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(cleanEmail)) {
       Alert.alert("Error", "Please enter a valid email address (e.g., name@emora.com)");
       return;
     }
@@ -116,6 +122,8 @@ export default function RegisterTherapistScreen() {
     try {
       const payload = {
         ...form,
+        name: cleanName,
+        email: cleanEmail,
         experienceYears: parseInt(form.experienceYears) || 0,
         features: form.features.map(f => Number(f) || 5),
         certificates: form.certificates ? form.certificates.split(",").map(c => c.trim()) : []
@@ -184,7 +192,7 @@ export default function RegisterTherapistScreen() {
           {/* Section 1: Authentication */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <View style={styles.iconCircle}>
+              <View style={[styles.iconCircle, { backgroundColor: '#FAD7A0' }]}>
                 <Ionicons name="key" size={16} color="#FFF" />
               </View>
               <Text style={styles.sectionTitle}>Account Access</Text>
@@ -224,10 +232,11 @@ export default function RegisterTherapistScreen() {
               <Text style={styles.label}>Full Name *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Dr. John Doe"
+                placeholder="John Doe"
                 value={form.name}
                 onChangeText={(v) => setForm({ ...form, name: v })}
               />
+              <Text style={styles.hint}>Note: "Dr." prefix is not required here.</Text>
             </View>
 
             <View style={styles.row}>
@@ -280,7 +289,7 @@ export default function RegisterTherapistScreen() {
                     <Text style={[styles.pickerBtnText, { color: '#B0B0B0' }]}>Select specialization tags...</Text>
                   )}
                 </View>
-                <Ionicons name="add-circle-outline" size={22} color="#FF6F61" />
+                <Ionicons name="add-circle-outline" size={22} color="#FAD7A0" />
               </TouchableOpacity>
             </View>
           </View>
@@ -320,7 +329,7 @@ export default function RegisterTherapistScreen() {
               <View style={[styles.iconCircle, { backgroundColor: '#F5A623' }]}>
                 <Ionicons name="flask" size={16} color="#FFF" />
               </View>
-              <Text style={[styles.sectionTitle, { color: '#F5A623' }]}>Matching Profile</Text>
+              <Text style={[styles.sectionTitle, { color: '#FAD7A0' }]}>Matching Profile</Text>
             </View>
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
@@ -374,7 +383,12 @@ export default function RegisterTherapistScreen() {
             onPress={handleRegister}
             disabled={loading}
           >
-            <Text style={styles.submitBtnText}>{loading ? "Saving Profile..." : "Publish Therapist Profile"}</Text>
+            <LinearGradient
+              colors={['#FAD7A0', '#FFB088']}
+              style={styles.submitBtnGradient}
+            >
+              <Text style={styles.submitBtnText}>{loading ? "Saving Profile..." : "Publish Therapist Profile"}</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -405,9 +419,9 @@ export default function RegisterTherapistScreen() {
                 
                 return (
                   <TouchableOpacity style={styles.optionItem} onPress={() => selectOption(item)}>
-                    <Text style={[styles.optionText, isSelected && { color: '#FF6F61' }]}>{item}</Text>
+                    <Text style={[styles.optionText, isSelected && { color: '#FAD7A0' }]}>{item}</Text>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={22} color="#FF6F61" />
+                      <Ionicons name="checkmark-circle" size={22} color="#FAD7A0" />
                     )}
                   </TouchableOpacity>
                 );
@@ -431,7 +445,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F0F0F0",
   },
-  headerTitle: { fontSize: 18, fontWeight: "900", color: "#353A40" },
+  headerTitle: { fontSize: 18, fontWeight: "900", color: "#4A4A4A" },
   backBtn: { padding: 4 },
   scrollContent: { padding: 15 },
   section: {
@@ -448,8 +462,8 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: 15, gap: 10 },
-  iconCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#FF6F61", justifyContent: "center", alignItems: "center" },
-  sectionTitle: { fontSize: 14, fontWeight: "900", color: "#FF6F61", textTransform: "uppercase", letterSpacing: 1 },
+  iconCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#D2B4DE", justifyContent: "center", alignItems: "center" },
+  sectionTitle: { fontSize: 14, fontWeight: "900", color: "#D2B4DE", textTransform: "uppercase", letterSpacing: 1 },
   inputGroup: { marginBottom: 12 },
   label: { fontSize: 13, fontWeight: "800", color: "#595F69", marginBottom: 6, paddingLeft: 2 },
   input: {
@@ -476,7 +490,7 @@ const styles = StyleSheet.create({
   pickerBtnText: { fontSize: 15, color: "#353A40", fontWeight: "700" },
   tagContainer: { flexDirection: "row", flexWrap: "wrap", gap: 5, flex: 1 },
   tag: { backgroundColor: "#FFF1F0", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: "#FFD8D4" },
-  tagText: { fontSize: 12, color: "#FF6F61", fontWeight: "700" },
+  tagText: { fontSize: 12, color: "#FAD7A0", fontWeight: "700" },
   hint: { fontSize: 12, color: "#8C8381", marginBottom: 10 },
   featuresGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
   featureBox: { width: "48%", marginBottom: 10 },
@@ -493,12 +507,21 @@ const styles = StyleSheet.create({
     color: "#353A40",
   },
   submitBtn: {
-    backgroundColor: "#353A40",
-    padding: 20,
+    height: 64,
     borderRadius: 25,
-    alignItems: "center",
     marginTop: 10,
     marginBottom: 60,
+    overflow: 'hidden',
+    shadowColor: "#4A4A4A",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  submitBtnGradient: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   submitBtnText: { color: "#FFF", fontWeight: "900", fontSize: 16, letterSpacing: 1 },
   modalOverlay: {

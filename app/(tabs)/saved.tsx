@@ -20,9 +20,11 @@ const { width, height } = Dimensions.get("window");
 
 const COLORS = {
   cream: "#FAF9F6",
-  pink: "#FF7597",
-  navy: "#353A40",
+  pink: "#FAD7A0", // Updated to Gold
+  navy: "#4A4A4A",
   white: "#FFFFFF",
+  gold: "#FAD7A0",
+  lavender: "#D2B4DE",
 };
 
 interface TherapistMatch {
@@ -141,7 +143,7 @@ export default function SavedProfessionalsScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.pink} />
+        <ActivityIndicator size="large" color={COLORS.navy} />
         <Text style={styles.loadingText}>Loading your care team...</Text>
       </View>
     );
@@ -164,7 +166,7 @@ export default function SavedProfessionalsScreen() {
 
       <FlatList
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchData} colors={[COLORS.pink]} />
+          <RefreshControl refreshing={loading} onRefresh={fetchData} colors={[COLORS.navy]} />
         }
         ListHeaderComponent={
           <>
@@ -172,7 +174,7 @@ export default function SavedProfessionalsScreen() {
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Upcoming Sessions</Text>
-                  <Ionicons name="calendar" size={20} color={COLORS.pink} />
+                  <Ionicons name="calendar-outline" size={20} color={COLORS.navy} />
                 </View>
                 <FlatList
                   horizontal
@@ -182,7 +184,7 @@ export default function SavedProfessionalsScreen() {
                   contentContainerStyle={styles.bookedCarousel}
                   renderItem={({ item }) => (
                     <LinearGradient
-                      colors={[COLORS.pink, '#FF9EAE']}
+                      colors={['#D2B4DE', '#EBDEF0']} // Lavender Gradient
                       style={styles.bookedCard}
                     >
                       <View style={styles.bookedHeader}>
@@ -201,8 +203,8 @@ export default function SavedProfessionalsScreen() {
                           <Text style={styles.sessionBadgeText}>{item.date}, {item.time}</Text>
                         </View>
                         <TouchableOpacity activeOpacity={0.8} style={styles.joinButton}>
-                          <Text style={styles.joinButtonText}>Join</Text>
-                          <Ionicons name="videocam" size={16} color={COLORS.pink} />
+                          <Text style={[styles.joinButtonText, { color: '#D2B4DE' }]}>Join</Text>
+                          <Ionicons name="videocam" size={16} color="#D2B4DE" />
                         </TouchableOpacity>
                       </View>
                     </LinearGradient>
@@ -214,7 +216,7 @@ export default function SavedProfessionalsScreen() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Favorites</Text>
-                <Ionicons name="heart" size={20} color={COLORS.pink} />
+                <Ionicons name="bookmark" size={20} color={COLORS.navy} />
               </View>
               {savedTherapists.length === 0 && (
                 <View style={styles.emptyContainer}>
@@ -235,7 +237,7 @@ export default function SavedProfessionalsScreen() {
                 <Text style={styles.listType}>{item.type}</Text>
               </View>
               <TouchableOpacity onPress={() => toggleSave(item._id)}>
-                <Ionicons name="bookmark" size={24} color={COLORS.pink} />
+                <Ionicons name="bookmark" size={24} color={COLORS.navy} />
               </TouchableOpacity>
             </View>
             <View style={styles.listSpecializations}>
@@ -246,7 +248,7 @@ export default function SavedProfessionalsScreen() {
               ))}
             </View>
             <TouchableOpacity 
-                style={styles.listActionButton}
+                style={[styles.listActionButton, { backgroundColor: COLORS.pink }]}
                 onPress={() => openBooking(item)}
             >
               <Text style={styles.listActionText}>Schedule Session</Text>
@@ -305,7 +307,7 @@ export default function SavedProfessionalsScreen() {
                 ))}
               </View>
 
-              <TouchableOpacity style={styles.confirmButton} onPress={bookTherapist}>
+              <TouchableOpacity style={[styles.confirmButton, { backgroundColor: COLORS.navy }]} onPress={bookTherapist}>
                 <Text style={styles.confirmButtonText}>Confirm Session</Text>
               </TouchableOpacity>
           </View>
@@ -376,7 +378,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: COLORS.navy,
+    color: '#4A4A4A',
   },
   bookedCarousel: {
     paddingRight: 40,
@@ -388,7 +390,7 @@ const styles = StyleSheet.create({
     padding: 24,
     marginRight: 16,
     elevation: 12,
-    shadowColor: COLORS.pink,
+    shadowColor: '#D2B4DE',
     shadowOpacity: 0.35,
     shadowRadius: 15,
     shadowOffset: { width: 0, height: 10 },
@@ -457,7 +459,7 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
   },
   joinButtonText: {
-    color: COLORS.pink,
+    color: '#D2B4DE', // Change to Lavender
     fontWeight: '900',
     fontSize: 14,
   },
@@ -483,7 +485,7 @@ const styles = StyleSheet.create({
   listName: {
     fontSize: 18,
     fontWeight: "800",
-    color: COLORS.navy,
+    color: "#4A4A4A",
   },
   listType: {
     fontSize: 13,

@@ -323,4 +323,29 @@ router.get('/patient/:userId/progress', async (req, res) => {
   }
 });
 
+// @route   POST /api/therapist/availability
+// @desc    Update therapist's available slots (Add a single slot)
+router.post('/availability', async (req, res) => {
+  try {
+    const { therapistId, slot } = req.body;
+    if (!therapistId || !slot) {
+      return res.status(400).json({ error: "therapistId and slot (String) are required" });
+    }
+
+    const therapist = await Therapist.findById(therapistId);
+    if (!therapist) return res.status(404).json({ error: "Therapist not found" });
+
+    // Add to availability if not already present
+    if (!therapist.availability.includes(slot)) {
+      therapist.availability.push(slot);
+      await therapist.save();
+    }
+
+    res.json({ message: "Availability updated successfully", availability: therapist.availability });
+  } catch (err) {
+    console.error("Update availability error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;

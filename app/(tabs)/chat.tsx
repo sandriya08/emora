@@ -1,5 +1,6 @@
 import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Redirect, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
@@ -13,11 +14,13 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  ActivityIndicator,
   Alert
 } from "react-native";
 import { useDiagnosis } from "../../context/DiagnosisContext";
 import { API_URL } from "@/constants/api";
 import * as Haptics from 'expo-haptics';
+import { confirmAction } from "@/utils/alert";
 
 /* -------- TYPES -------- */
 type Scores = {
@@ -50,44 +53,90 @@ const getSeverity = (score: number): "Low" | "Moderate" | "High" => {
 
 export default function ChatScreen() {
   const { user } = useAuth();
-  const { setDiagnosisResult } = useDiagnosis();
+  const { setDiagnosisResult, resetDiagnosis } = useDiagnosis();
   const router = useRouter();
 
   const flatListRef = useRef<FlatList>(null);
+  const systemMessageTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (systemMessageTimerRef.current) clearTimeout(systemMessageTimerRef.current);
+    };
+  }, []);
 
   /* -------- QUESTIONS -------- */
-  const questions = [
-    "To start, could you describe the general emotional atmosphere of your life lately?",
-    "How often have you felt overwhelmed by the demands or pressures of your daily routine?",
-    "Lately, have you been troubled by persistent worry, nervousness, or a sense of unease?",
-    "Have you noticed a significant decline in your mood, or a loss of interest in things you usually enjoy?",
-    "Describe your recent energy levels; do you feel a sense of chronic mental or physical depletion?",
-    "How has your quality of rest been? Are you finding it difficult to fall asleep or wake up feeling restored?",
-    "Lately, how would you describe your internal dialogue or your sense of self-worth?",
-    "Have recent life events or shifts made it particularly challenging for you to maintain your balance?",
-    "Do you sometimes feel emotionally detached, as if you're running on 'auto-pilot' and finding it hard to connect?",
-  ];
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [loadingQuestions, setLoadingQuestions] = useState(true);
 
-  const [currentQuestion, setCurrentQuestion] = useState(-1); // -1 for introductory focus question
+  const [currentQuestion, setCurrentQuestion] = useState(-1); 
   const [inputText, setInputText] = useState("");
   const [completed, setCompleted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [focus, setFocus] = useState<"Individual" | "Couple" | null>(null);
+  const [focus, setFocus] = useState<"Individual" | "Couple">("Individual");
+  const [messages, setMessages] = useState<Message[]>([]);
 
-  const initialMessages: Message[] = [
-    {
-      id: "start-1",
-      text: "Hi! I’m here to help you reflect on how you’ve been feeling.",
-      sender: "system",
-    },
-    {
-      id: "start-2",
-      text: "Before we begin, who is this session for?",
-      sender: "system",
-    },
-  ];
+  // 0. Fetch questions from DB
+  useEffect(() => {
+    const fetchQs = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/selfcare/questions`);
+        const data = await res.json();
+        if (res.ok) setQuestions(data);
+      } catch (err) {
+        console.error("Fetch questions error:", err);
+      } finally {
+        setLoadingQuestions(false);
+      }
+    };
+    fetchQs();
+  }, []);
 
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  // 1. Load persisted chat or start fresh
+  useEffect(() => {
+    if (loadingQuestions || questions.length === 0) return;
+
+    const loadChat = async () => {
+      if (!user?.id) return;
+      try {
+        const savedMessages = await AsyncStorage.getItem(`chat_msg_${user.id}`);
+        const savedIdx = await AsyncStorage.getItem(`chat_idx_${user.id}`);
+        const savedComp = await AsyncStorage.getItem(`chat_comp_${user.id}`);
+
+        if (savedMessages) {
+          setMessages(JSON.parse(savedMessages));
+          const idx = savedIdx ? parseInt(savedIdx) : 0;
+          setCurrentQuestion(idx === -1 ? 0 : idx); // Never stay at -1 if there are messages
+          if (savedComp) setCompleted(savedComp === 'true');
+        } else {
+          // Fresh start
+          setMessages([
+            { id: "start-1", text: "Hi! I’m here to help you reflect on how you’ve been feeling.", sender: "system" },
+            { id: "start-q", text: questions[0].text, sender: "system" },
+          ]);
+          setCurrentQuestion(0);
+        }
+      } catch (e) {
+        console.error("Load chat error:", e);
+      }
+    };
+    loadChat();
+  }, [user, loadingQuestions, questions]);
+
+  // 2. Persist chat whenever it changes
+  useEffect(() => {
+    const persist = async () => {
+      if (!user?.id || messages.length === 0) return;
+      try {
+        await AsyncStorage.setItem(`chat_msg_${user.id}`, JSON.stringify(messages));
+        await AsyncStorage.setItem(`chat_idx_${user.id}`, currentQuestion.toString());
+        await AsyncStorage.setItem(`chat_comp_${user.id}`, completed.toString());
+      } catch (e) {
+        console.error("Persist error:", e);
+      }
+    };
+    persist();
+  }, [messages, currentQuestion, completed]);
 
   const initialScores: Scores = {
     Stress: 0,
@@ -126,40 +175,47 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg]);
     setCurrentQuestion(0);
     
-    setTimeout(() => {
+    if (systemMessageTimerRef.current) clearTimeout(systemMessageTimerRef.current);
+    systemMessageTimerRef.current = setTimeout(() => {
         setMessages((prev) => [
           ...prev,
-          { id: Date.now().toString() + "-q", text: questions[0], sender: "system" },
+          { id: Date.now().toString() + "-q", text: questions[0].text, sender: "system" },
         ]);
     }, 600);
   };
 
   const resetChat = () => {
+    if (systemMessageTimerRef.current) clearTimeout(systemMessageTimerRef.current);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
+    confirmAction(
       "New Session",
       "Are you sure you want to start a new session?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Start Fresh", 
-          onPress: () => {
-             setMessages(initialMessages);
-             setScores(initialScores);
-             setCurrentQuestion(-1);
-             setFocus(null);
-             setCompleted(false);
-             setInputText("");
-          }
+      async () => {
+        if (user?.id) {
+          await AsyncStorage.removeItem(`chat_msg_${user.id}`);
+          await AsyncStorage.removeItem(`chat_idx_${user.id}`);
+          await AsyncStorage.removeItem(`chat_comp_${user.id}`);
         }
-      ]
+
+        setMessages([
+          { id: "start-1", text: "Hi! I’m here to help you reflect on how you’ve been feeling.", sender: "system" },
+          { id: "start-q", text: questions[0].text, sender: "system" },
+        ]);
+        setScores(initialScores);
+        setCurrentQuestion(0);
+        setFocus("Individual");
+        setCompleted(false);
+        setInputText("");
+        resetDiagnosis(); // Clear global diagnosis result
+      },
+      "Start Fresh"
     );
   };
 
   /* -------- ANALYSIS -------- */
-  const analyzeAnswer = (text: string) => {
+  const analyzeAnswer = (text: string, currentScores: Scores) => {
     const t = text.toLowerCase();
-    const updated = { ...scores };
+    const updated = { ...currentScores };
 
     const isNegated =
       t.includes("not ") || t.includes("no ") || t.includes("never ");
@@ -169,14 +225,12 @@ export default function ChatScreen() {
     };
 
     if (isYes(t)) {
-      if (currentQuestion === 1) add("Stress");
-      if (currentQuestion === 2) add("Anxiety");
-      if (currentQuestion === 3) add("Depression");
-      if (currentQuestion === 4) add("Emotional Exhaustion", 2);
-      if (currentQuestion === 5) add("Sleep Disturbance", 2);
-      if (currentQuestion === 6) add("Low Self-Esteem", 2);
-      if (currentQuestion === 7) add("Adjustment Issues");
-      if (currentQuestion === 8) add("Burnout", 2);
+      const q = questions[currentQuestion];
+      if (q && q.category) {
+        const cat = q.category as keyof Scores;
+        const weight = q.weight || 1;
+        add(cat, weight);
+      }
     }
 
     if (!isNegated) {
@@ -191,23 +245,25 @@ export default function ChatScreen() {
     }
 
     setScores(updated);
+    return updated;
   };
 
   /* -------- SEND -------- */
   const handleSend = async () => {
-    if (!inputText.trim() || currentQuestion === -1) return;
+    if (!inputText.trim() || currentQuestion === -1 || isSaving) return;
 
     const userMsg: Message = { id: Date.now().toString(), text: inputText, sender: "user" };
-    analyzeAnswer(inputText);
+    const latestScores = analyzeAnswer(inputText, scores);
 
     setMessages((prev) => [...prev, userMsg]);
     setInputText("");
 
     if (currentQuestion < questions.length - 1) {
-      const nextQ = questions[currentQuestion + 1];
+      const nextQ = questions[currentQuestion + 1].text;
       setCurrentQuestion((q) => q + 1);
 
-      setTimeout(() => {
+      if (systemMessageTimerRef.current) clearTimeout(systemMessageTimerRef.current);
+      systemMessageTimerRef.current = setTimeout(() => {
         setMessages((prev) => [
           ...prev,
           { id: Date.now().toString() + "-q", text: nextQ, sender: "system" },
@@ -217,7 +273,7 @@ export default function ChatScreen() {
       setIsSaving(true);
       const results: any = {};
 
-      Object.entries(scores).forEach(([key, value]) => {
+      Object.entries(latestScores).forEach(([key, value]) => {
         if (value > 0) {
           results[key] = {
             score: value,
@@ -266,12 +322,12 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerTitleGroup}>
-          <Ionicons name="leaf-outline" size={28} color="#FF7597" />
+          <Ionicons name="leaf-outline" size={28} color="#FAD7A0" />
           <Text style={styles.headerTitle}>Pulse Check</Text>
         </View>
         <TouchableOpacity style={styles.newSessionBtn} onPress={resetChat}>
            <Text style={styles.newSessionText}>Reset</Text>
-           <Ionicons name="refresh-outline" size={16} color="#FF7597" />
+           <Ionicons name="refresh-outline" size={16} color="#FAD7A0" />
         </TouchableOpacity>
       </View>
 
@@ -281,45 +337,34 @@ export default function ChatScreen() {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={[styles.bubble, item.sender === "user" ? styles.userBubble : styles.systemBubble]}>
-            <Text style={item.sender === "user" ? styles.userText : styles.systemText}>{item.text}</Text>
+            {item.sender === "user" ? (
+              <LinearGradient
+                colors={['#FAD7A0', '#FFB088']} // Gold to Peach Gradient
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.userGradient}
+              >
+                <Text style={styles.userText}>{item.text}</Text>
+              </LinearGradient>
+            ) : (
+              <Text style={styles.systemText}>{item.text}</Text>
+            )}
           </View>
         )}
         contentContainerStyle={styles.listContent}
-        ListFooterComponent={() => (
-           currentQuestion === -1 ? (
-             <View style={styles.optionsWrapper}>
-                <TouchableOpacity activeOpacity={0.9} style={styles.optionBtn} onPress={() => handleFocusSelect("Individual")}>
-                   <LinearGradient colors={['#FFF5F7', '#FFFFFF']} style={styles.optionGradient}>
-                      <View style={styles.optionIconCircle}>
-                        <Ionicons name="person" size={24} color="#FF7597" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.optionCardTitle}>Just for Me</Text>
-                        <Text style={styles.optionCardSub}>Personal mental health support</Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color="#FFD1DC" />
-                   </LinearGradient>
-                </TouchableOpacity>
-
-                <TouchableOpacity activeOpacity={0.9} style={styles.optionBtn} onPress={() => handleFocusSelect("Couple")}>
-                   <LinearGradient colors={['#F0F9FF', '#FFFFFF']} style={[styles.optionGradient, { borderColor: '#BAE6FD' }]}>
-                      <View style={[styles.optionIconCircle, { backgroundColor: '#E0F2FE' }]}>
-                        <Ionicons name="people" size={24} color="#0EA5E9" />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.optionCardTitle, { color: '#0369A1' }]}>Our Relationship</Text>
-                        <Text style={styles.optionCardSub}>Support for couples & marriage</Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color="#BAE6FD" />
-                   </LinearGradient>
-                </TouchableOpacity>
-             </View>
-           ) : null
-        )}
+        ListFooterComponent={() => null}
       />
+
+      {loadingQuestions && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#FAD7A0" />
+          <Text style={styles.loadingText}>Opening book...</Text>
+        </View>
+      )}
 
       {isSaving && (
         <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#FAD7A0" />
           <Text style={styles.loadingText}>Analyzing pulse...</Text>
         </View>
       )}
@@ -329,7 +374,8 @@ export default function ChatScreen() {
           <View style={styles.inputContainer}>
             <TextInput
               style={styles.input}
-              placeholder="How are you feeling?"
+              placeholder="Reflect here..."
+              placeholderTextColor="#A0A5B1"
               value={inputText}
               onChangeText={setInputText}
               onSubmitEditing={handleSend}
@@ -337,7 +383,12 @@ export default function ChatScreen() {
               blurOnSubmit={false}
             />
             <TouchableOpacity onPress={handleSend} style={styles.sendButton}>
-              <Ionicons name="arrow-up" size={24} color="#FFF" />
+              <LinearGradient
+                colors={['#FAD7A0', '#FFB088']}
+                style={styles.sendGradient}
+              >
+                <Ionicons name="arrow-up" size={24} color="#FFF" />
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -348,51 +399,37 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FAF9F6", paddingBottom: 110 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: 'space-between', padding: 20 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
   headerTitleGroup: { flexDirection: 'row', alignItems: 'center' },
-  headerTitle: { fontSize: 24, fontWeight: "800", color: "#353A40", marginLeft: 10 },
-  newSessionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 5, elevation: 2 },
-  newSessionText: { fontSize: 13, fontWeight: '700', color: '#FF7597' },
+  headerTitle: { fontSize: 26, fontWeight: "900", color: "#1A1A1A", marginLeft: 10, letterSpacing: -0.5 },
+  newSessionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A1A1A', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20, gap: 5, elevation: 6, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10 },
+  newSessionText: { fontSize: 13, fontWeight: '800', color: '#FFF' },
   listContent: { paddingHorizontal: 20, paddingBottom: 50 },
-  bubble: { padding: 16, borderRadius: 24, marginVertical: 8, maxWidth: "85%" },
-  userBubble: { alignSelf: "flex-end", backgroundColor: "#FBCFE8" },
-  systemBubble: { alignSelf: "flex-start", backgroundColor: "#FFF" },
-  userText: { color: "#353A40", fontSize: 16, fontWeight: "600" },
-  systemText: { color: "#353A40", fontSize: 16, fontWeight: "500" },
+  bubble: { marginVertical: 6, maxWidth: "88%" },
+  userBubble: { alignSelf: "flex-end", overflow: 'hidden', borderRadius: 24, borderBottomRightRadius: 4 },
+  userGradient: { padding: 18, paddingHorizontal: 24 },
+  systemBubble: { alignSelf: "flex-start", backgroundColor: "#FFF", padding: 18, paddingHorizontal: 24, borderRadius: 24, borderTopLeftRadius: 4, elevation: 2, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10 },
+  userText: { color: "#FFF", fontSize: 16, fontWeight: "700", lineHeight: 22 },
+  systemText: { color: "#353A40", fontSize: 16, fontWeight: "600", lineHeight: 22 },
   optionsWrapper: { marginTop: 10, gap: 12 },
-  optionBtn: {
-    borderRadius: 24,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 10 },
-    marginBottom: 5,
-  },
-  optionGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 18,
-    borderRadius: 24,
+  inputWrapper: { paddingHorizontal: 20, paddingBottom: 25 },
+  inputContainer: { 
+    flexDirection: "row", 
+    backgroundColor: "#F8F9FA", // Light gray glass effect
+    borderRadius: 35, 
+    padding: 6,
+    paddingLeft: 20,
+    elevation: 4, 
+    shadowColor: "#000", 
+    shadowOpacity: 0.1, 
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
     borderWidth: 1,
-    borderColor: '#FFD1DC',
-    gap: 15,
+    borderColor: '#E2E8F0', // Very subtle border
   },
-  optionIconCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 2,
-  },
-  optionCardTitle: { fontSize: 17, fontWeight: '900', color: '#FF7597' },
-  optionCardSub: { fontSize: 13, color: '#8C8381', fontWeight: '500', marginTop: 2 },
-  inputWrapper: { padding: 15 },
-  inputContainer: { flexDirection: "row", backgroundColor: "#FFF", borderRadius: 30, elevation: 4 },
-  input: { flex: 1, paddingHorizontal: 20, fontSize: 16, color: "#353A40" },
-  sendButton: { backgroundColor: "#353A40", width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center", margin: 4 },
+  input: { flex: 1, fontSize: 16, fontWeight: '600', color: "#353A40" },
+  sendButton: { width: 44, height: 44, borderRadius: 22, overflow: 'hidden' },
+  sendGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(250, 249, 246, 0.8)', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
-  loadingText: { fontSize: 18, fontWeight: '700', color: '#FF7597' }
+  loadingText: { fontSize: 18, fontWeight: '800', color: '#FAD7A0' }
 });

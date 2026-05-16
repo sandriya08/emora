@@ -10,26 +10,29 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
 
-const COLORS = {
-  cream: "#FAF9F6",
-  pink: "#FF7597",
-  navy: "#353A40",
-  softPink: "#F2E1D9",
-  white: "#FFFFFF",
-  glass: "rgba(255, 255, 255, 0.8)",
-};
+const CARD_THEMES = [
+  { bg: "#FFECE2", text: "#8A4F2E", tag: "rgba(138, 79, 46, 0.1)", icon: "#FF8A5B", name: "sparkles" },
+  { bg: "#E0F9F6", text: "#2E8A7E", tag: "rgba(46, 138, 126, 0.1)", icon: "#81E6D9", name: "leaf" },
+  { bg: "#D1FAE5", text: "#065F46", tag: "rgba(6, 95, 70, 0.1)", icon: "#10B981", name: "star" },
+  { bg: "#E0F2FE", text: "#075985", tag: "rgba(7, 89, 133, 0.1)", icon: "#0EA5E9", name: "flower" },
+  { bg: "#FFF4D2", text: "#856404", tag: "rgba(133, 100, 4, 0.1)", icon: "#F6E05E", name: "leaf" },
+];
 
 const WiseIndicator = ({ index }: { index: number }) => {
-  const icons = ["sparkles", "leaf", "star", "flower", "sunny"];
-  const icon = icons[index % icons.length];
-  const colors = ["#FAD961", "#A8E063", "#FF7597", "#74EBD5", "#FFCC33"];
-  const color = colors[index % colors.length];
+  const theme = CARD_THEMES[index % CARD_THEMES.length];
 
   return (
-    <View style={[styles.iconCircle, { backgroundColor: color + "20" }]}>
-      <Ionicons name={icon as any} size={24} color={color} />
+    <View style={[styles.iconCircle, { backgroundColor: '#FFF' }]}>
+      <Ionicons name={theme.name as any} size={28} color={theme.icon} />
     </View>
   );
+};
+  
+const COLORS = {
+  cream: "#FAF9F6",
+  peach: "#FF8A5B",
+  navy: "#353A40",
+  white: "#FFFFFF",
 };
 
 export default function HistoryScreen() {
@@ -74,43 +77,43 @@ export default function HistoryScreen() {
     const date = new Date(item.timestamp);
     const dateStr = getRelativeDate(date);
     const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const theme = CARD_THEMES[index % CARD_THEMES.length];
 
     return (
-      <Animated.View entering={FadeInUp.delay(index * 80)} layout={Layout.springify()}>
+      <Animated.View entering={FadeInUp.delay(index * 100)} layout={Layout.springify()}>
         <TouchableOpacity 
-          style={styles.card} 
+          style={[styles.card, { backgroundColor: theme.bg }]} 
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             router.push(`/(tabs)/result?id=${item._id}`);
           }}
+          activeOpacity={0.9}
         >
-          <LinearGradient
-            colors={[COLORS.white, COLORS.cream]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
-          >
-            <View style={styles.cardLeft}>
+            <View style={styles.cardContent}>
               <WiseIndicator index={index} />
               <View style={styles.textContainer}>
-                <Text style={styles.dateText}>{dateStr}</Text>
-                <Text style={styles.timeText}>{timeStr}</Text>
+                <View style={styles.cardHeaderRow}>
+                    <View>
+                        <Text style={[styles.dateText, { color: theme.text }]}>{dateStr}</Text>
+                        <Text style={[styles.timeText, { color: theme.text, opacity: 0.7 }]}>{timeStr}</Text>
+                    </View>
+                    <View style={styles.chevronCircle}>
+                        <Ionicons name="chevron-forward" size={18} color={theme.text} />
+                    </View>
+                </View>
+                
                 <View style={styles.labelsContainer}>
                   {item.labels?.slice(0, 2).map((label: string, i: number) => (
-                    <View key={i} style={styles.tag}>
-                      <Text style={styles.tagText}>{label}</Text>
+                    <View key={i} style={[styles.tag, { backgroundColor: theme.tag }]}>
+                      <Text style={[styles.tagText, { color: theme.text }]}>{label}</Text>
                     </View>
                   ))}
                   {item.labels?.length > 2 && (
-                    <Text style={styles.moreText}>+{item.labels.length - 2} more</Text>
+                    <Text style={[styles.moreText, { color: theme.text, opacity: 0.6 }]}>+{item.labels.length - 2} more</Text>
                   )}
                 </View>
               </View>
             </View>
-            <View style={styles.chevronContainer}>
-              <Ionicons name="chevron-forward" size={20} color={COLORS.navy} />
-            </View>
-          </LinearGradient>
         </TouchableOpacity>
       </Animated.View>
     );
@@ -122,7 +125,7 @@ export default function HistoryScreen() {
       
       <Animated.View entering={FadeInDown} style={styles.header}>
         <View>
-          <Text style={styles.preTitle}>Your Journey</Text>
+          <Text style={[styles.preTitle, { color: COLORS.peach }]}>Your Journey</Text>
           <Text style={styles.title}>Result History</Text>
         </View>
       </Animated.View>
@@ -130,11 +133,11 @@ export default function HistoryScreen() {
       {history.length === 0 && !loading ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconContainer}>
-            <Ionicons name="document-text-outline" size={80} color={COLORS.softPink} />
+            <Ionicons name="document-text-outline" size={80} color="#FFD1DC" />
           </View>
           <Text style={styles.emptyTitle}>Begin your journey</Text>
           <Text style={styles.emptyText}>Start a conversation to see your growth over time.</Text>
-          <TouchableOpacity style={styles.ctaButton} onPress={() => router.push('/chat')}>
+          <TouchableOpacity style={[styles.ctaButton, { backgroundColor: COLORS.peach }]} onPress={() => router.push('/chat')}>
             <Text style={styles.ctaText}>Start Analysis</Text>
             <Ionicons name="arrow-forward" size={18} color={COLORS.white} />
           </TouchableOpacity>
@@ -162,8 +165,8 @@ const styles = StyleSheet.create({
     paddingTop: 30,
     paddingBottom: 20,
   },
-  preTitle: { fontSize: 13, fontWeight: '700', color: COLORS.pink, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 4 },
-  title: { fontSize: 32, fontWeight: '900', color: COLORS.navy, letterSpacing: -0.5 },
+  preTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 4, opacity: 0.8 },
+  title: { fontSize: 32, fontWeight: '900', color: "#4A4A4A", letterSpacing: -0.5 },
   refreshButton: {
     width: 44,
     height: 44,
@@ -176,49 +179,57 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
   },
-  listContent: { padding: 20, paddingBottom: 150 },
+  listContent: { paddingHorizontal: 20, paddingBottom: 150 },
   card: {
     marginBottom: 16,
-    borderRadius: 24,
+    borderRadius: 32,
     overflow: 'hidden',
-    elevation: 8,
-    shadowColor: COLORS.navy,
-    shadowOpacity: 0.1,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
-  cardGradient: {
-    padding: 20,
+  cardContent: {
+    padding: 22,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  cardLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    width: '100%',
+    marginBottom: 10,
+  },
   iconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 20,
+    marginRight: 18,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
   },
   textContainer: { flex: 1 },
-  dateText: { fontSize: 18, fontWeight: '800', color: COLORS.navy, marginBottom: 2 },
-  timeText: { fontSize: 13, color: '#8C8381', fontWeight: '600', marginBottom: 8 },
-  labelsContainer: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  dateText: { fontSize: 20, fontWeight: '900', marginBottom: 2 },
+  timeText: { fontSize: 14, fontWeight: '700', marginBottom: 5 },
+  labelsContainer: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 5 },
   tag: {
-    backgroundColor: 'rgba(255, 117, 151, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
   },
-  tagText: { fontSize: 11, color: COLORS.pink, fontWeight: '700' },
-  moreText: { fontSize: 11, color: '#A0AEC0', fontWeight: '600', marginLeft: 4 },
-  chevronContainer: {
+  tagText: { fontSize: 12, fontWeight: '800' },
+  moreText: { fontSize: 12, fontWeight: '700', marginLeft: 4 },
+  chevronCircle: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F7F7F7',
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -231,8 +242,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 30,
-    shadowColor: COLORS.pink,
-    shadowOpacity: 0.1,
+    shadowColor: COLORS.navy,
+    shadowOpacity: 0.05,
     shadowRadius: 30,
   },
   emptyTitle: { fontSize: 24, fontWeight: '800', color: COLORS.navy, marginBottom: 12 },
